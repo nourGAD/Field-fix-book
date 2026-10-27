@@ -1,0 +1,75 @@
+name: Log a site fix
+description: A problem you hit on site and exactly how you fixed it.
+title: "[Fix] "
+labels: ["fix"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing. One good entry saves the next team a revisit.
+        **Hide site IDs, operator names and customer data** in text and photos.
+        مشكلة قابلتك في الموقع؟ اكتبها واكتب حلّيتها إزاي.
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Power & DC
+        - RF & antenna
+        - Transmission & fiber
+        - Alarms & sensors
+        - Integration & SW
+        - Installation & HW
+        - Site & environment
+        - Safety
+    validations:
+      required: true
+  - type: input
+    id: equipment
+    attributes:
+      label: Unit / equipment
+      placeholder: e.g. Radio 4415, PSU, Enclosure 6150
+  - type: textarea
+    id: symptom
+    attributes:
+      label: What you saw on site
+      description: Alarm text, symptom, when it happens.
+    validations:
+      required: true
+  - type: textarea
+    id: cause
+    attributes:
+      label: Root cause
+      description: What was actually wrong.
+  - type: textarea
+    id: steps
+    attributes:
+      label: Fix steps
+      description: One step per line, in order.
+      placeholder: |
+        Check the jumper at the radio RF port
+        Re-torque the connector
+        Re-run the VSWR check
+    validations:
+      required: true
+  - type: textarea
+    id: avoid
+    attributes:
+      label: Avoid this
+      description: The mistake that causes it, or what not to do.
+  - type: input
+    id: country
+    attributes:
+      label: Country / region
+      placeholder: e.g. KSA
+  - type: input
+    id: tags
+    attributes:
+      label: Tags
+      description: Comma separated.
+      placeholder: vswr, jumper, rain
+  - type: textarea
+    id: photos
+    attributes:
+      label: Photos
+      description: Drag photos here (optional).
