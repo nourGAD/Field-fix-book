@@ -2,7 +2,7 @@
 
 A shared logbook of problems field teams hit on telecom sites, and exactly how they fixed them, so the next team doesn't lose a day on the same fault.
 
-**Open the logbook:** https://nourgad.github.io/field-fix-book/
+**Open the logbook:** https://nourgad.github.io/Field-fix-book/
 
 ## How it works
 

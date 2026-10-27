@@ -3,7 +3,7 @@ const loc = location.hostname.endsWith(".github.io")
   ? { owner: location.hostname.split(".")[0], repo: location.pathname.split("/").filter(Boolean)[0] }
   : {};
 const OWNER = loc.owner || "nourGAD";
-const REPO = loc.repo || "field-fix-book";
+const REPO = loc.repo || "Field-fix-book";
 const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
 const REPO_URL = `https://github.com/${OWNER}/${REPO}`;
 const NEW_URL = `${REPO_URL}/issues/new?template=fix.yml`;
