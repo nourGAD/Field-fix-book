@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RBS Site Script Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* layout: form column on the left, sticky status/output rail on the right; one column on phones */
+  --bg: #f3f5f8; --panel: #ffffff; --ink: #172030; --muted: #5a6577; --line: #d9dee7;
+  --accent: #1d4ed8; --accent-ink: #ffffff; --accent-soft: #e6edfd;
+  --ok: #157a3c; --ok-soft: #e3f4e9; --warn: #9a5b00; --warn-soft: #fdf1dc; --crit: #b42318; --crit-soft: #fde7e5;
+  --code-bg: #f6f8fb;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141c; --panel: #161d28; --ink: #e5eaf2; --muted: #9aa6b8; --line: #2a3443;
+    --accent: #6d94ff; --accent-ink: #0b1220; --accent-soft: #1b2741;
+    --ok: #4fc47e; --ok-soft: #12291c; --warn: #f0b04a; --warn-soft: #2e2412; --crit: #ff7a6e; --crit-soft: #331816;
+    --code-bg: #111821; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141c; --panel: #161d28; --ink: #e5eaf2; --muted: #9aa6b8; --line: #2a3443;
+  --accent: #6d94ff; --accent-ink: #0b1220; --accent-soft: #1b2741;
+  --ok: #4fc47e; --ok-soft: #12291c; --warn: #f0b04a; --warn-soft: #2e2412; --crit: #ff7a6e; --crit-soft: #331816;
+  --code-bg: #111821; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font-body); }
+header { padding: 20px 20px 0; max-width: 1280px; margin: 0 auto; display: grid; gap: 12px; }
+h1 { font-size: 22px; font-weight: 600; margin: 0; text-wrap: balance; }
+.sub { color: var(--muted); margin: 0; max-width: 70ch; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tab { border: 0; background: none; color: var(--muted); font: inherit; font-weight: 500; padding: 10px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+main { max-width: 1280px; margin: 0 auto; padding: 16px 20px 40px; }
+.view[hidden] { display: none; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+.toolbar .label { color: var(--muted); font-size: 13px; }
+.loaded { font-size: 13px; color: var(--muted); }
+.loaded b { color: var(--ink); font-weight: 600; }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 16px; align-items: start; }
+@media (max-width: 980px) { .grid { grid-template-columns: 1fr; } .rail { order: -1; position: static !important; } }
+.form { display: grid; gap: 14px; }
+fieldset { margin: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 14px 16px 16px; min-width: 0; }
+legend { font-weight: 600; padding: 0 6px; margin-left: -6px; }
+.hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 12px; }
+label.f { display: grid; gap: 3px; font-size: 12.5px; color: var(--muted); font-weight: 500; }
+label.f.wide { grid-column: 1 / -1; }
+input, select, textarea { font: 14px/1.3 var(--font-mono); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; width: 100%; min-width: 0; }
+textarea { resize: vertical; min-height: 64px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+label.chk { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--ink); }
+label.chk input { width: auto; }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th { text-align: left; font-weight: 500; color: var(--muted); padding: 4px 6px; white-space: nowrap; font-size: 12px; }
+td { padding: 3px 4px; }
+td input, td select { padding: 6px; font-size: 13px; }
+.n-col { width: 76px; } .p-col { width: 64px; } .ip-col { min-width: 128px; } .x-col { width: 36px; }
+.btn { font: inherit; font-size: 14px; font-weight: 500; border-radius: 6px; padding: 8px 12px; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--ink); display: inline-flex; gap: 6px; align-items: center; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:disabled { opacity: .45; cursor: not-allowed; }
+.btn.small { font-size: 13px; padding: 5px 9px; }
+.btn.icon { padding: 4px 8px; color: var(--muted); }
+.row-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+input[type=file] { display: none; }
+.rail { position: sticky; top: 12px; display: grid; gap: 12px; }
+.card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 14px 16px; display: grid; gap: 10px; min-width: 0; }
+.card h2 { font-size: 15px; margin: 0; font-weight: 600; }
+.status { display: flex; gap: 10px; align-items: center; font-weight: 600; }
+.pill { font-size: 12.5px; font-weight: 600; padding: 3px 9px; border-radius: 99px; white-space: nowrap; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.crit { background: var(--crit-soft); color: var(--crit); }
+.issues { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 260px; overflow: auto; }
+.issues li { font-size: 13px; padding: 6px 8px 6px 10px; border-left: 3px solid; border-radius: 0 4px 4px 0; }
+.issues li.e { border-color: var(--crit); background: var(--crit-soft); }
+.issues li.w { border-color: var(--warn); background: var(--warn-soft); }
+.issues li.i { border-color: var(--ok); background: var(--ok-soft); }
+.issues .where { font-weight: 600; margin-right: 4px; }
+.files { font: 13px/1.6 var(--font-mono); word-break: break-all; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+pre { margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; font: 12px/1.45 var(--font-mono); overflow: auto; max-height: 360px; white-space: pre; tab-size: 2; }
+.ptabs { display: flex; gap: 6px; }
+.ptabs .btn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.toast { min-height: 20px; font-size: 13px; color: var(--ok); }
+.toast.bad { color: var(--crit); }
+[data-style="basic"] .full-only { display: none; }
+.drop { border: 2px dashed var(--line); border-radius: 8px; padding: 26px 16px; text-align: center; background: var(--panel); display: grid; gap: 10px; justify-items: center; }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.results { display: grid; gap: 12px; margin-top: 14px; }
+.kv { color: var(--muted); font-size: 13px; }
+.kv b { color: var(--ink); font-weight: 500; font-family: var(--font-mono); }
+.rules { font-size: 13px; color: var(--muted); margin: 0; padding-left: 18px; display: grid; gap: 3px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>RBS Site Script Generator</h1>
+  <p class="sub">Fill in the site data and get the Site Basic and Site Equipment files for AutoIntegration. Every value is checked first, and the files stay locked until there are no errors.</p>
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-gen" aria-selected="true" aria-controls="view-gen">Generate</button>
+    <button class="tab" role="tab" id="tab-chk" aria-selected="false" aria-controls="view-chk">Check a file</button>
+  </div>
+</header>
+<main>
+<section id="view-gen" class="view" role="tabpanel" aria-labelledby="tab-gen">
+  <div class="toolbar">
+    <span class="label">Start from:</span>
+    <button class="btn small" id="ex-a"></button>
+    <button class="btn small" id="ex-b"></button>
+    <label class="btn small" for="imp-file">Import ENM files…</label>
+    <input type="file" id="imp-file" accept=".xml,.txt" multiple>
+    <span class="loaded" id="loaded"></span>
+  </div>
+  <div class="grid">
+    <div class="form" id="form"></div>
+    <aside class="rail">
+      <div class="card" id="status-card">
+        <div class="status"><span id="status-pill" class="pill ok">Ready</span><span id="status-text"></span></div>
+        <ul class="issues" id="issues"></ul>
+      </div>
+      <div class="card">
+        <h2>Files</h2>
+        <div class="files" id="fnames"></div>
+        <div class="actions">
+          <button class="btn primary" id="dl">Download both (.zip)</button>
+          <button class="btn" id="cp-sb">Copy Site Basic</button>
+          <button class="btn" id="cp-eq">Copy Site Equipment</button>
+        </div>
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
+        <p class="hint" style="margin:0">The RBS Summary file in ENM points to these exact file names. If you change the node name or tag, update the summary too.</p>
+      </div>
+      <div class="card">
+        <h2>Preview</h2>
+        <div class="ptabs">
+          <button class="btn small" id="pv-sb" aria-pressed="true">Site Basic</button>
+          <button class="btn small" id="pv-eq" aria-pressed="false">Site Equipment</button>
+        </div>
+        <pre id="preview"></pre>
+      </div>
+      <div class="card">
+        <h2>MoShell checks after integration</h2>
+        <pre id="moshell"></pre>
+        <div class="actions"><button class="btn small" id="cp-mos">Copy commands</button></div>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<section id="view-chk" class="view" role="tabpanel" aria-labelledby="tab-chk" hidden>
+  <div class="drop" id="drop">
+    <div><b>Drop Site Basic / Site Equipment XML files here</b></div>
+    <div class="hint" style="margin:0">They are checked in your browser and never uploaded anywhere.</div>
+    <label class="btn primary" for="chk-file">Choose files…</label>
+    <input type="file" id="chk-file" accept=".xml,.txt" multiple>
+  </div>
+  <div class="results" id="results"></div>
+  <div class="card" style="margin-top:14px">
+    <h2>What the checker looks for</h2>
+    <ul class="rules">
+      <li>Every InterfaceIPv4 has exactly one of encapsulation or loopback, and loopback is written as <code>&lt;loopback /&gt;</code></li>
+      <li>No VLAN used twice on the same Ethernet port, VLAN 1–4094, one interface per VlanPort</li>
+      <li>Valid IPs, no duplicate IPs, overlapping subnets, next hop inside the router's subnet</li>
+      <li>Every reference (encapsulation, accessPoint, RF/RI ports, branches) points to an MO in the file</li>
+      <li>No spaces in MO ids or the file name; RI ports used once; fingerprint matches MeContext</li>
+    </ul>
+  </div>
+</section>
+</main>
+
+<script>
+/*CORE*/
+</script>
+<script>
+/*EXAMPLES*/
+</script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var KEY = 'rbs-sitegen-draft-v1';
+  var cfg, loadedLabel = '', previewWhich = 'sb', downloadsNs = null, last = { ok: false };
+
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function escH(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function get(path) { return path.split('.').reduce(function (o, k) { return o == null ? o : o[k]; }, cfg); }
+  function set(path, v) { var ks = path.split('.'), o = cfg; for (var i = 0; i < ks.length - 1; i++) o = o[ks[i]]; o[ks[ks.length - 1]] = v; }
+
+  function field(path, label, opts) {
+    opts = opts || {};
+    var v = get(path), id = 'f-' + path.replace(/\./g, '-');
+    var cls = 'f' + (opts.wide ? ' wide' : '') + (opts.fullOnly ? ' full-only' : '');
+    if (opts.type === 'select') {
+      return '<label class="' + cls + '" for="' + id + '">' + label + '<select id="' + id + '" data-path="' + path + '">' +
+        opts.options.map(function (o) { return '<option value="' + escH(o[0]) + '"' + (String(v) === String(o[0]) ? ' selected' : '') + '>' + escH(o[1]) + '</option>'; }).join('') + '</select></label>';
+    }
+    if (opts.type === 'check') {
+      return '<label class="chk' + (opts.fullOnly ? ' full-only' : '') + '" for="' + id + '"><input type="checkbox" id="' + id + '" data-path="' + path + '"' + (v ? ' checked' : '') + '> ' + label + '</label>';
+    }
+    if (opts.type === 'area') {
+      return '<label class="' + cls + '" for="' + id + '">' + label + '<textarea id="' + id + '" data-path="' + path + '" data-kind="' + (opts.kind || '') + '" spellcheck="false">' + escH(opts.kind === 'list' ? (v || []).join('\n') : v) + '</textarea></label>';
+    }
+    return '<label class="' + cls + '" for="' + id + '">' + label + '<input id="' + id + '" data-path="' + path + '" value="' + escH(v) + '" spellcheck="false" autocomplete="off"' + (opts.ph ? ' placeholder="' + escH(opts.ph) + '"' : '') + '></label>';
+  }
+  function cell(path, cls) {
+    var id = 'f-' + path.replace(/\./g, '-');
+    return '<td class="' + (cls || '') + '"><input id="' + id + '" aria-label="' + path + '" data-path="' + path + '" value="' + escH(get(path)) + '" spellcheck="false" autocomplete="off"></td>';
+  }
+  function selCell(path, options) {
+    var v = get(path), id = 'f-' + path.replace(/\./g, '-');
+    return '<td><select id="' + id + '" aria-label="' + path + '" data-path="' + path + '">' + options.map(function (o) {
+      return '<option value="' + escH(o[0]) + '"' + (String(v) === String(o[0]) ? ' selected' : '') + '>' + escH(o[1]) + '</option>'; }).join('') + '</select></td>';
+  }
+
+  function renderForm() {
+    var f = $('form');
+    f.setAttribute('data-style', cfg.style);
+    var traffic = cfg.traffic.map(function (t, i) {
+      var p = 'traffic.' + i + '.';
+      return '<tr>' + cell(p + 'router') + cell(p + 'vlanPort') + cell(p + 'vlan', 'n-col') + cell(p + 'ip', 'ip-col') + cell(p + 'prefix', 'p-col') + cell(p + 'gw', 'ip-col') +
+        '<td class="x-col"><button class="btn icon" data-del="traffic" data-i="' + i + '" aria-label="Remove traffic network ' + (i + 1) + '">✕</button></td></tr>';
+    }).join('');
+    var riOpts = Core.BB_RI_PORTS.map(function (p) { return [p, p]; });
+    var radios = cfg.radios.map(function (r, i) {
+      var p = 'radios.' + i + '.';
+      return '<tr>' + cell(p + 'sector', 'n-col') + selCell(p + 'type', [['RRU', 'RRU'], ['AIR', 'AIR']]) + cell(p + 'fru') +
+        (r.type === 'RRU' ? selCell(p + 'branches', [['2', '2'], ['4', '4']]) : '<td class="kv">—</td>') + selCell(p + 'riPort', riOpts) +
+        '<td class="x-col"><button class="btn icon" data-del="radios" data-i="' + i + '" aria-label="Remove radio ' + (i + 1) + '">✕</button></td></tr>';
+    }).join('');
+    f.innerHTML =
+      '<fieldset><legend>Node</legend><div class="fields">' +
+        field('style', 'Script style', { type: 'select', options: [['full', 'Full ENM style'], ['basic', 'Basic interim style']] }) +
+        field('nodeName', 'Node name (MeContext)') + field('networkMeId', 'Network ME ID') + field('subNetwork', 'SubNetwork') +
+        field('rootMo', 'Root SubNetwork') + field('fileTag', 'File name tag (optional)', { ph: 'e.g. 2026_10_29' }) +
+        field('user.name', 'Maintenance user') + field('user.password', 'Maintenance password') +
+      '</div></fieldset>' +
+      '<fieldset><legend>Transport port</legend><div class="fields">' +
+        field('tn.port', 'TN port') + field('tn.fru', 'Baseband unit') +
+        field('tn.mode', 'Operating mode', { type: 'select', options: [['1G_FULL', '1G_FULL'], ['10G_FULL', '10G_FULL'], ['25G_FULL', '25G_FULL'], ['100M_FULL', '100M_FULL']] }) +
+        '<div style="align-self:end">' + field('tn.autoNeg', 'Auto-negotiation', { type: 'check' }) + '</div>' +
+      '</div></fieldset>' +
+      '<fieldset><legend>OAM</legend><div class="fields">' +
+        field('oam.router', 'Router') + field('oam.vlanPort', 'VlanPort') + field('oam.vlan', 'VLAN') +
+        field('oam.ip', 'IP') + field('oam.prefix', 'Prefix length') + field('oam.gw', 'Gateway') +
+      '</div></fieldset>' +
+      '<fieldset><legend>Traffic networks</legend><p class="hint">One row per router (S1/X2, NR CP, NR UP…). Each needs its own VLAN on the port.</p>' +
+        '<div class="tbl-wrap"><table><thead><tr><th>Router</th><th>VlanPort</th><th>VLAN</th><th>IP</th><th>Prefix</th><th>Gateway</th><th></th></tr></thead><tbody>' + traffic + '</tbody></table></div>' +
+        '<div class="row-actions"><button class="btn small" id="add-traffic">Add traffic network</button></div></fieldset>' +
+      '<fieldset><legend>Internal F1 (NR CU–DU)</legend><div class="fields">' +
+        '<div style="align-self:end">' + field('f1.enabled', 'Create Node_Internal_F1 loopbacks', { type: 'check' }) + '</div>' +
+        field('f1.cucp', 'NRCUCP IP (/32)') + field('f1.du', 'NRDU IP (/32)') +
+      '</div></fieldset>' +
+      '<fieldset><legend>ENM services</legend><div class="fields">' +
+        field('snmp.target', 'ENM FM SNMP target') + field('snmp.community', 'SNMP community') +
+        field('dns', 'DNS server (optional)', { fullOnly: true }) +
+        field('ntp', 'NTP servers (one per line)', { type: 'area', kind: 'list', wide: true }) +
+      '</div></fieldset>' +
+      '<fieldset class="full-only"><legend>Security</legend><div class="fields">' +
+        '<div class="wide" style="grid-column:1/-1;display:flex;gap:18px;flex-wrap:wrap">' + field('security.certm', 'Certificate enrollment (CertM)', { type: 'check' }) + field('security.ldap', 'LDAP authentication', { type: 'check' }) + '</div>' +
+        field('security.caFingerprint', 'CA fingerprint (SHA-1)', { wide: true }) + field('security.caName', 'Enrollment authority name', { wide: true }) +
+        field('security.enrollUri', 'Enrollment server URI', { wide: true }) + field('security.legalNotice', 'Legal notice', { wide: true }) +
+        field('security.loginFailureDelay', 'Login failure delay (s)') + field('security.cliSshPort', 'CLI SSH port') +
+      '</div></fieldset>' +
+      '<fieldset><legend>Radios</legend><p class="hint">RRU sectors get an antenna group named after the sector. AIR units use their transceiver. RI port is the baseband port the unit\'s DATA_1 is cabled to.</p>' +
+        '<div class="tbl-wrap"><table><thead><tr><th>Sector</th><th>Type</th><th>Unit name</th><th>Branches</th><th>BB RI port</th><th></th></tr></thead><tbody>' + radios + '</tbody></table></div>' +
+        '<div class="row-actions"><button class="btn small" id="add-rru">Add RRU</button><button class="btn small" id="add-air">Add AIR</button></div></fieldset>';
+  }
+
+  function nextFree(list, prefix) { var n = 1; while (list.indexOf(prefix + n) >= 0) n++; return prefix + n; }
+  function freeRi() { var used = cfg.radios.map(function (r) { return r.riPort; }); return Core.BB_RI_PORTS.filter(function (p) { return used.indexOf(p) < 0; })[0] || 'A'; }
+
+  function onFormClick(e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.del) { e.preventDefault(); cfg[b.dataset.del].splice(+b.dataset.i, 1); renderForm(); refresh(); return; }
+    if (b.id === 'add-traffic') { cfg.traffic.push({ router: '', vlanPort: '', vlan: '', ip: '', prefix: '', gw: '' }); renderForm(); refresh(); }
+    if (b.id === 'add-rru' || b.id === 'add-air') {
+      var secs = cfg.radios.map(function (r) { return r.sector; }), frus = cfg.radios.map(function (r) { return r.fru; });
+      var s = nextFree(secs, 'S');
+      if (b.id === 'add-rru') cfg.radios.push({ type: 'RRU', sector: s, fru: 'RRU-' + s, branches: 2, riPort: freeRi() });
+      else cfg.radios.push({ type: 'AIR', sector: s, fru: nextFree(frus, 'AIR-'), branches: '', riPort: freeRi() });
+      renderForm(); refresh();
+    }
+  }
+  function onFormInput(e) {
+    var el = e.target, path = el.dataset.path; if (!path) return;
+    var v = el.type === 'checkbox' ? el.checked : el.value;
+    if (el.dataset.kind === 'list') v = el.value.split(/[\s,;]+/).filter(Boolean);
+    set(path, v);
+    if (path === 'style' || /\.type$/.test(path)) {
+      if (/\.type$/.test(path)) { var r = get(path.replace(/\.type$/, '')); if (v === 'RRU' && !r.branches) r.branches = 2; if (v === 'AIR') r.branches = ''; }
+      renderForm();
+    }
+    refresh();
+  }
+
+  function trimmed() {
+    var c = clone(cfg);
+    (function walk(o) { Object.keys(o).forEach(function (k) { if (typeof o[k] === 'string') o[k] = o[k].trim(); else if (o[k] && typeof o[k] === 'object') walk(o[k]); }); })(c);
+    return c;
+  }
+
+  function refresh() {
+    try { localStorage.setItem(KEY, JSON.stringify({ cfg: cfg, label: loadedLabel })); } catch (e) {}
+    var c = trimmed(), v = Core.validateConfig(c), items = [], sb = '', eq = '', lintE = [];
+    if (!v.errors.length) {
+      try {
+        sb = Core.generateSiteBasic(c); eq = Core.generateSiteEquipment(c);
+        var l1 = Core.lintXml(sb), l2 = Core.lintXml(eq);
+        lintE = l1.errors.concat(l2.errors);
+        l1.warnings.concat(l2.warnings).forEach(function (w) { if (!v.warnings.some(function (x) { return w.msg.indexOf('overlaps') >= 0 && x.msg.indexOf('overlaps') >= 0; })) v.warnings.push({ where: 'Self-check', msg: w.msg }); });
+      } catch (ex) { lintE.push({ msg: 'Generator failed: ' + ex.message }); }
+    }
+    var errs = v.errors.concat(lintE.map(function (x) { return { where: 'Self-check', msg: x.msg }; }));
+    var ok = !errs.length;
+    last = { ok: ok, sb: sb, eq: eq, c: c };
+    var pill = $('status-pill');
+    pill.className = 'pill ' + (ok ? (v.warnings.length ? 'warn' : 'ok') : 'crit');
+    pill.textContent = ok ? (v.warnings.length ? 'Ready with warnings' : 'Ready') : errs.length + ' error' + (errs.length > 1 ? 's' : '');
+    $('status-text').textContent = ok ? 'Files pass every check.' : 'Fix these before the files unlock.';
+    errs.forEach(function (x) { items.push('<li class="e"><span class="where">' + escH(x.where) + ':</span>' + escH(x.msg) + '</li>'); });
+    v.warnings.forEach(function (x) { items.push('<li class="w"><span class="where">' + escH(x.where) + ':</span>' + escH(x.msg) + '</li>'); });
+    if (ok) items.push('<li class="i">Self-check on the generated XML: 0 errors. Loopbacks are empty tags, every VLAN is unique, and every reference resolves.</li>');
+    $('issues').innerHTML = items.join('');
+    var names = Core.fileNames(c);
+    $('fnames').innerHTML = escH(names.basic) + '<br>' + escH(names.equip);
+    ['dl', 'cp-sb', 'cp-eq'].forEach(function (id) { $(id).disabled = !ok; });
+    $('dl').title = ok ? '' : 'Fix the errors first';
+    $('preview').textContent = ok ? (previewWhich === 'sb' ? sb : eq).replace(/\r\n/g, '\n') : 'Preview appears when there are no errors.';
+    try { $('moshell').textContent = Core.moshellChecks(c).join('\n'); } catch (e) { $('moshell').textContent = ''; }
+    $('loaded').innerHTML = loadedLabel ? 'Loaded: <b>' + escH(loadedLabel) + '</b>' : '';
+  }
+
+  function toast(msg, bad) { var t = $('toast'); t.textContent = msg; t.className = 'toast' + (bad ? ' bad' : ''); clearTimeout(toast.t); toast.t = setTimeout(function () { t.textContent = ''; }, 5000); }
+  function copy(text, what) {
+    function fallback() {
+      var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) {} ta.remove();
+      toast(ok ? what + ' copied' : 'Copy was blocked — select the text in Preview and copy it', !ok);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast(what + ' copied'); }, fallback);
+    else fallback();
+  }
+  function download() {
+    if (!last.ok) return;
+    var names = Core.fileNames(last.c);
+    var zip = Core.makeZip([{ name: names.basic, data: last.sb }, { name: names.equip, data: last.eq }]);
+    var zname = last.c.nodeName + '_site_scripts.zip', blob = new Blob([zip], { type: 'application/zip' });
+    if (downloadsNs) {
+      downloadsNs.save({ filename: zname, data: blob }).then(function () { toast('Saved ' + zname); }, function (e) {
+        toast(e && e.code === 'declined' ? 'Download cancelled' : 'Download not available here — use the Copy buttons', true);
+      });
+      return;
+    }
+    try {
+      var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = zname; document.body.appendChild(a); a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      toast('Saving ' + zname + ' — if nothing downloads, use the Copy buttons');
+    } catch (e) { toast('Download not available here — use the Copy buttons', true); }
+  }
+
+  function load(c, label) { cfg = clone(c); loadedLabel = label; renderForm(); refresh(); }
+  function readFiles(fileList, cb) {
+    var files = Array.prototype.slice.call(fileList), out = [], n = files.length;
+    if (!n) return;
+    files.forEach(function (f, i) { var r = new FileReader(); r.onload = function () { out[i] = { name: f.name, text: String(r.result) }; if (--n === 0) cb(out); }; r.readAsText(f); });
+  }
+
+  // import into generator
+  $('imp-file').addEventListener('change', function (e) {
+    readFiles(e.target.files, function (fs) {
+      var r = Core.importFiles(fs.map(function (f) { return f.text; }), cfg);
+      load(r.cfg, 'imported from ' + fs.map(function (f) { return f.name; }).join(', '));
+      toast(r.notes.join(' '), false);
+      e.target.value = '';
+    });
+  });
+  var EXK = Object.keys(EXAMPLES);
+  $('ex-a').textContent = EXK[0] + ' example'; $('ex-b').textContent = EXK[1] + ' example';
+  $('ex-a').addEventListener('click', function () { load(EXAMPLES[EXK[0]], EXK[0] + ' example'); });
+  $('ex-b').addEventListener('click', function () { load(EXAMPLES[EXK[1]], EXK[1] + ' example'); });
+  $('form').addEventListener('input', onFormInput);
+  $('form').addEventListener('change', function (e) { if (e.target.tagName === 'SELECT' || e.target.type === 'checkbox') onFormInput(e); });
+  $('form').addEventListener('click', onFormClick);
+  $('dl').addEventListener('click', download);
+  $('cp-sb').addEventListener('click', function () { if (last.ok) copy(last.sb, 'Site Basic'); });
+  $('cp-eq').addEventListener('click', function () { if (last.ok) copy(last.eq, 'Site Equipment'); });
+  $('cp-mos').addEventListener('click', function () { copy($('moshell').textContent, 'MoShell commands'); });
+  $('pv-sb').addEventListener('click', function () { previewWhich = 'sb'; $('pv-sb').setAttribute('aria-pressed', 'true'); $('pv-eq').setAttribute('aria-pressed', 'false'); refresh(); });
+  $('pv-eq').addEventListener('click', function () { previewWhich = 'eq'; $('pv-eq').setAttribute('aria-pressed', 'true'); $('pv-sb').setAttribute('aria-pressed', 'false'); refresh(); });
+
+  // tabs
+  function showTab(which) {
+    var gen = which !== 'check';
+    $('tab-gen').setAttribute('aria-selected', String(gen)); $('tab-chk').setAttribute('aria-selected', String(!gen));
+    $('view-gen').hidden = !gen; $('view-chk').hidden = gen;
+  }
+  $('tab-gen').addEventListener('click', function () { showTab('gen'); try { history.replaceState(null, '', '#generate'); } catch (e) {} });
+  $('tab-chk').addEventListener('click', function () { showTab('check'); try { history.replaceState(null, '', '#check'); } catch (e) {} });
+  window.addEventListener('hashchange', function () { showTab(location.hash === '#check' ? 'check' : 'gen'); });
+
+  // checker
+  function check(fs) {
+    $('results').innerHTML = fs.map(function (f) {
+      var r = Core.lintXml(f.text, f.name), cls = r.errors.length ? 'crit' : (r.warnings.length ? 'warn' : 'ok');
+      var label = r.errors.length ? r.errors.length + ' error' + (r.errors.length > 1 ? 's' : '') : (r.warnings.length ? 'Loads, with warnings' : 'No problems found');
+      var li = r.errors.map(function (x) { return '<li class="e"><span class="where">' + (x.line ? 'Line ' + x.line : 'File') + ':</span>' + escH(x.msg) + '</li>'; })
+        .concat(r.warnings.map(function (x) { return '<li class="w"><span class="where">' + (x.line ? 'Line ' + x.line : 'File') + ':</span>' + escH(x.msg) + '</li>'; }));
+      return '<div class="card"><div class="status"><span class="pill ' + cls + '">' + label + '</span><span class="files">' + escH(f.name) + '</span></div>' +
+        '<div class="kv">Type <b>' + escH(r.info.kind) + '</b> · Node <b>' + escH(r.info.node || '?') + '</b> · MOs <b>' + r.info.moCount + '</b></div>' +
+        (li.length ? '<ul class="issues" style="max-height:none">' + li.join('') + '</ul>' : '') + '</div>';
+    }).join('');
+  }
+  $('chk-file').addEventListener('change', function (e) { readFiles(e.target.files, check); e.target.value = ''; });
+  var drop = $('drop');
+  drop.addEventListener('dragover', function (e) { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', function () { drop.classList.remove('over'); });
+  drop.addEventListener('drop', function (e) { e.preventDefault(); drop.classList.remove('over'); readFiles(e.dataTransfer.files, check); });
+
+  // start
+  var saved = null; try { saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+  if (saved && saved.cfg && saved.cfg.radios) load(saved.cfg, saved.label || 'your last draft'); else load(EXAMPLES[EXK[0]], EXK[0] + ' example');
+  showTab(location.hash === '#check' ? 'check' : 'gen');
+  if (window.claude && typeof window.claude.use === 'function') {
+    window.claude.use('downloads').then(function (ns) { downloadsNs = ns; }, function () {});
+  }
+})();
+</script>
+</body>
+</html>

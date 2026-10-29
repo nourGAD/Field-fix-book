@@ -10,6 +10,10 @@ A shared logbook of problems field teams hit on telecom sites, and exactly how t
 - **Add your own step or tip:** open any fix and add it at the bottom.
 - **It worked for you?** Click *This worked for me*. Fixes with the most votes rise to the top.
 
+## Tools
+
+- **[RBS Site Script Generator](https://nourgad.github.io/Field-fix-book/tools/rbs-site-script-generator/)**: builds Site Basic / Site Equipment AutoIntegration files from the IP plan and blocks the errors that make the node reject them. [Code](tools/rbs-site-script-generator/)
+
 ## Behind the scenes
 
 - The site is a static page on GitHub Pages (`index.html`, `app.js`).
