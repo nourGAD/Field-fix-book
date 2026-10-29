@@ -6,12 +6,16 @@ A shared logbook of problems field teams hit on telecom sites, and exactly how t
 
 ## How it works
 
-- **Log a fix:** open a new issue with the *Log a site fix* form. Each issue is one entry: category, what you saw, root cause, fix steps, what to avoid, and photos.
-- **Add your own step or tip:** comment on the issue.
-- **It worked for you?** React with 👍 on the issue. Fixes with the most 👍 rise to the top.
+- **Log a fix:** click *Log a fix* on the site. No account needed. Add what you saw on site, the root cause, the fix steps, what to avoid, and up to 3 photos.
+- **Add your own step or tip:** open any fix and add it at the bottom.
+- **It worked for you?** Click *This worked for me*. Fixes with the most votes rise to the top.
 
-The page reads the issues through the public GitHub API, so new entries appear on the site within a few minutes.
+## Behind the scenes
 
-> Hide site IDs, operator names and customer data before posting. Everything in this repository is public.
+- The site is a static page on GitHub Pages (`index.html`, `app.js`).
+- Entries are stored in a Google Sheet through a Google Apps Script web app (`google/Code.gs`). Photos are saved to a Google Drive folder.
+- The web app URL is set in `config.js`.
+
+> Hide site IDs, operator names and customer data before posting. Everything on the site is public.
 
 Maintained by Nour Gad.

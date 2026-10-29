@@ -41,7 +41,6 @@ h1{font-family:var(--f-display);font-weight:700;font-size:clamp(44px,7vw,76px);l
 .stats{display:flex;gap:28px;margin-top:22px;flex-wrap:wrap}
 .stat b{display:block;font-family:var(--f-display);font-size:34px;line-height:1;color:var(--head-ink);font-variant-numeric:tabular-nums}
 .stat span{font-size:12px;color:var(--head-muted);text-transform:uppercase;letter-spacing:.08em}
-a.btn{text-decoration:none}
 .btn{font:600 14px/1 var(--f-body);border-radius:10px;padding:12px 16px;border:1px solid transparent;cursor:pointer;display:inline-flex;align-items:center;gap:8px;background:var(--surface-2);color:var(--ink);border-color:var(--line)}
 .btn:focus-visible,.chip:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.card:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 .btn-primary{background:var(--accent);color:#1B1206;border-color:var(--accent)}
@@ -112,7 +111,7 @@ ol.steps li div{padding-top:5px;overflow-wrap:anywhere}
 .extra-item .by{font-size:12px;color:var(--muted)}
 .linkbtn{background:none;border:none;color:var(--muted);font:12px var(--f-body);cursor:pointer;text-decoration:underline;padding:2px}
 .addrow{display:flex;gap:8px;align-items:flex-start}
-.addrow textarea{flex:1;min-width:0}
+.addrow textarea,.addrow input{flex:1;min-width:0}
 /* form */
 form.sheet .sheet-body{gap:14px}
 label.f{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600}
@@ -152,7 +151,7 @@ textarea{resize:vertical;min-height:70px}
         <div class="stat"><b id="st-worked">0</b><span>“Worked for me”</span></div>
       </div>
     </div>
-    <div><a class="btn btn-primary" id="addBtn" target="_blank" rel="noopener" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Log a fix</a></div>
+    <div><button class="btn btn-primary" id="addBtn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Log a fix</button></div>
   </div>
 </header>
 
@@ -177,10 +176,12 @@ textarea{resize:vertical;min-height:70px}
   <div id="list" class="grid" aria-live="polite"></div>
   <div id="empty" hidden></div>
 </main>
-<footer class="wrap" style="padding-block:0 40px;color:var(--muted);font-size:13px">Entries are GitHub issues in <a id="repoLink" style="color:inherit" target="_blank" rel="noopener" href="#"></a>. Comment to add a step, react 👍 if it worked for you. · Nour Gad</footer>
+<footer class="wrap" style="padding-block:0 40px;color:var(--muted);font-size:13px">Anyone can add a fix or a step. Hide site IDs, operator names and customer data. · Maintained by Nour Gad</footer>
 
 <dialog id="detail" aria-labelledby="d-title"></dialog>
+<dialog id="editor" aria-labelledby="f-title"></dialog>
 
+<script src="config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
