@@ -6,180 +6,204 @@
 <title>RBS Site Script Generator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
-  /* layout: form column on the left, sticky status/output rail on the right; one column on phones */
-  --bg: #f3f5f8; --panel: #ffffff; --ink: #172030; --muted: #5a6577; --line: #d9dee7;
-  --accent: #1d4ed8; --accent-ink: #ffffff; --accent-soft: #e6edfd;
-  --ok: #157a3c; --ok-soft: #e3f4e9; --warn: #9a5b00; --warn-soft: #fdf1dc; --crit: #b42318; --crit-soft: #fde7e5;
-  --code-bg: #f6f8fb;
+  /* layout: top status bar, dark step rail on the left, one workspace panel per step; rail turns into a scrolling step strip on phones */
+  --bg: #eef1f5; --panel: #ffffff; --panel-2: #f6f8fb; --ink: #142031; --muted: #5b6678; --line: #d8dee8;
+  --rail: #111a27; --rail-ink: #e7ecf3; --rail-muted: #8c99ab; --rail-line: #223044;
+  --accent: #2563eb; --accent-ink: #ffffff; --accent-soft: #e5edfd;
+  --ok: #13804a; --ok-soft: #e1f3e8; --warn: #a15c00; --warn-soft: #fcf0d9; --crit: #c0261a; --crit-soft: #fde6e3;
   --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0f141c; --panel: #161d28; --ink: #e5eaf2; --muted: #9aa6b8; --line: #2a3443;
-    --accent: #6d94ff; --accent-ink: #0b1220; --accent-soft: #1b2741;
-    --ok: #4fc47e; --ok-soft: #12291c; --warn: #f0b04a; --warn-soft: #2e2412; --crit: #ff7a6e; --crit-soft: #331816;
-    --code-bg: #111821; color-scheme: dark;
+    --bg: #0c121b; --panel: #141c28; --panel-2: #101722; --ink: #e6ebf2; --muted: #98a4b6; --line: #273344;
+    --rail: #090e16; --rail-ink: #e6ebf2; --rail-muted: #7f8ca0; --rail-line: #1d2838;
+    --accent: #6f98ff; --accent-ink: #0a1120; --accent-soft: #19253d;
+    --ok: #4cc27f; --ok-soft: #11281b; --warn: #f0ae4a; --warn-soft: #2d2211; --crit: #ff7b6f; --crit-soft: #321715;
+    color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0f141c; --panel: #161d28; --ink: #e5eaf2; --muted: #9aa6b8; --line: #2a3443;
-  --accent: #6d94ff; --accent-ink: #0b1220; --accent-soft: #1b2741;
-  --ok: #4fc47e; --ok-soft: #12291c; --warn: #f0b04a; --warn-soft: #2e2412; --crit: #ff7a6e; --crit-soft: #331816;
-  --code-bg: #111821; color-scheme: dark;
+  --bg: #0c121b; --panel: #141c28; --panel-2: #101722; --ink: #e6ebf2; --muted: #98a4b6; --line: #273344;
+  --rail: #090e16; --rail-ink: #e6ebf2; --rail-muted: #7f8ca0; --rail-line: #1d2838;
+  --accent: #6f98ff; --accent-ink: #0a1120; --accent-soft: #19253d;
+  --ok: #4cc27f; --ok-soft: #11281b; --warn: #f0ae4a; --warn-soft: #2d2211; --crit: #ff7b6f; --crit-soft: #321715;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; }
-body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font-body); }
-header { padding: 20px 20px 0; max-width: 1280px; margin: 0 auto; display: grid; gap: 12px; }
-h1 { font-size: 22px; font-weight: 600; margin: 0; text-wrap: balance; }
-.sub { color: var(--muted); margin: 0; max-width: 70ch; }
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
-.tab { border: 0; background: none; color: var(--muted); font: inherit; font-weight: 500; padding: 10px 14px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
-main { max-width: 1280px; margin: 0 auto; padding: 16px 20px 40px; }
-.view[hidden] { display: none; }
-.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
-.toolbar .label { color: var(--muted); font-size: 13px; }
-.loaded { font-size: 13px; color: var(--muted); }
-.loaded b { color: var(--ink); font-weight: 600; }
-.grid { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 16px; align-items: start; }
-@media (max-width: 980px) { .grid { grid-template-columns: 1fr; } .rail { order: -1; position: static !important; } }
-.form { display: grid; gap: 14px; }
-fieldset { margin: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 14px 16px 16px; min-width: 0; }
-legend { font-weight: 600; padding: 0 6px; margin-left: -6px; }
-.hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
-.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 12px; }
-label.f { display: grid; gap: 3px; font-size: 12.5px; color: var(--muted); font-weight: 500; }
-label.f.wide { grid-column: 1 / -1; }
-input, select, textarea { font: 14px/1.3 var(--font-mono); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; width: 100%; min-width: 0; }
-textarea { resize: vertical; min-height: 64px; }
-input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-label.chk { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--ink); }
-label.chk input { width: auto; }
-.tbl-wrap { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; font-size: 13px; }
-th { text-align: left; font-weight: 500; color: var(--muted); padding: 4px 6px; white-space: nowrap; font-size: 12px; }
-td { padding: 3px 4px; }
-td input, td select { padding: 6px; font-size: 13px; }
-.n-col { width: 76px; } .p-col { width: 64px; } .ip-col { min-width: 128px; } .x-col { width: 36px; }
-.btn { font: inherit; font-size: 14px; font-weight: 500; border-radius: 6px; padding: 8px 12px; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--ink); display: inline-flex; gap: 6px; align-items: center; }
-.btn:hover { border-color: var(--accent); }
-.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.btn.primary:disabled { opacity: .45; cursor: not-allowed; }
-.btn.small { font-size: 13px; padding: 5px 9px; }
-.btn.icon { padding: 4px 8px; color: var(--muted); }
-.row-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-input[type=file] { display: none; }
-.rail { position: sticky; top: 12px; display: grid; gap: 12px; }
-.card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 14px 16px; display: grid; gap: 10px; min-width: 0; }
-.card h2 { font-size: 15px; margin: 0; font-weight: 600; }
-.status { display: flex; gap: 10px; align-items: center; font-weight: 600; }
-.pill { font-size: 12.5px; font-weight: 600; padding: 3px 9px; border-radius: 99px; white-space: nowrap; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 14.5px/1.5 var(--font-body); }
+button, input, select, textarea { font: inherit; color: inherit; }
+code, .mono { font-family: var(--font-mono); }
+
+.app { display: grid; grid-template-columns: 264px minmax(0, 1fr); grid-template-rows: auto 1fr; min-height: 100%; }
+.topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 10px 20px; background: var(--rail); color: var(--rail-ink); border-bottom: 1px solid var(--rail-line); flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 15px; letter-spacing: .01em; }
+.brand-mark { width: 26px; height: 26px; border-radius: 6px; background: var(--accent); display: grid; place-items: center; color: var(--accent-ink); }
+.brand-mark svg { width: 16px; height: 16px; }
+.topbar .spacer { flex: 1; }
+.chipline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.tchip { font: 500 12px/1 var(--font-mono); padding: 6px 9px; border-radius: 6px; border: 1px solid var(--rail-line); color: var(--rail-muted); white-space: nowrap; }
+.tchip b { color: var(--rail-ink); font-weight: 600; }
+.pill { font: 600 12px/1 var(--font-body); padding: 6px 10px; border-radius: 99px; white-space: nowrap; display: inline-flex; gap: 6px; align-items: center; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .pill.ok { background: var(--ok-soft); color: var(--ok); }
 .pill.warn { background: var(--warn-soft); color: var(--warn); }
 .pill.crit { background: var(--crit-soft); color: var(--crit); }
-.issues { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 260px; overflow: auto; }
-.issues li { font-size: 13px; padding: 6px 8px 6px 10px; border-left: 3px solid; border-radius: 0 4px 4px 0; }
+
+.rail { background: var(--rail); color: var(--rail-ink); padding: 18px 14px; display: flex; flex-direction: column; gap: 18px; border-right: 1px solid var(--rail-line); }
+.rail h2 { font: 600 11px/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--rail-muted); margin: 0 6px 4px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; counter-reset: st; }
+.stepbtn { width: 100%; display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 8px; border: 0; border-radius: 8px; background: none; color: var(--rail-ink); cursor: pointer; text-align: left; }
+.stepbtn:hover { background: rgba(255,255,255,.05); }
+.stepbtn[aria-current="step"] { background: rgba(111,152,255,.16); }
+.stepnum { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font: 600 13px/1 var(--font-mono); border: 1.5px solid var(--rail-muted); color: var(--rail-muted); }
+.stepbtn[aria-current="step"] .stepnum { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.stepbtn.done .stepnum { border-color: var(--ok); color: var(--ok); }
+.stepbtn.done[aria-current="step"] .stepnum, .stepbtn[aria-current="step"] .stepnum { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.steptxt { display: grid; min-width: 0; }
+.steptxt b { font-weight: 500; font-size: 14px; }
+.steptxt small { color: var(--rail-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.badge { font: 600 11px/1 var(--font-mono); padding: 4px 6px; border-radius: 5px; }
+.badge.e { background: var(--crit); color: #fff; }
+.badge.w { background: var(--warn); color: #1c1200; }
+.badge.k { color: var(--ok); }
+.railtool { display: flex; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--rail-line); background: none; color: var(--rail-ink); cursor: pointer; width: 100%; text-align: left; }
+.railtool:hover, .railtool[aria-current="page"] { border-color: var(--accent); }
+.railtool svg { width: 17px; height: 17px; color: var(--rail-muted); flex: none; }
+.railnote { font-size: 12px; color: var(--rail-muted); margin: auto 6px 0; line-height: 1.45; }
+
+.work { padding: 22px 26px 40px; min-width: 0; }
+.stephead { display: flex; gap: 16px; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; margin-bottom: 16px; max-width: 1100px; }
+.stephead .eyebrow { font: 600 11.5px/1 var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.stephead h1 { font-size: 24px; line-height: 1.2; margin: 6px 0 4px; font-weight: 600; text-wrap: balance; }
+.stephead p { margin: 0; color: var(--muted); max-width: 72ch; }
+.panelgrid { display: grid; gap: 14px; max-width: 1100px; }
+.cols-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.cols-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; min-width: 0; }
+.panel > h2 { font-size: 15px; font-weight: 600; margin: 0 0 4px; display: flex; gap: 8px; align-items: center; }
+.panel > .hint { margin: 0 0 12px; }
+.hint { color: var(--muted); font-size: 13px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(175px, 1fr)); gap: 10px 12px; }
+label.f { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); font-weight: 500; align-content: start; }
+label.f.wide { grid-column: 1 / -1; }
+input, select, textarea { font: 13.5px/1.3 var(--font-mono); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px 9px; width: 100%; min-width: 0; }
+input[aria-invalid="true"] { border-color: var(--crit); background: var(--crit-soft); }
+textarea { resize: vertical; min-height: 70px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+label.chk { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--ink); padding-top: 4px; }
+label.chk input { width: auto; }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th { text-align: left; font-weight: 500; color: var(--muted); padding: 6px; white-space: nowrap; font-size: 12px; border-bottom: 1px solid var(--line); }
+td { padding: 4px; vertical-align: middle; }
+td input, td select { padding: 6px 7px; font-size: 13px; }
+.n-col { width: 82px; } .p-col { width: 66px; } .ip-col { min-width: 130px; } .x-col { width: 38px; }
+.rtable td { padding: 7px 8px; border-bottom: 1px solid var(--line); font-family: var(--font-mono); font-size: 12.5px; }
+.rtable td:first-child { font-family: var(--font-body); font-weight: 500; }
+.rtable tr:last-child td { border-bottom: 0; }
+
+.btn { font-size: 14px; font-weight: 500; border-radius: 7px; padding: 9px 14px; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--ink); display: inline-flex; gap: 7px; align-items: center; justify-content: center; text-decoration: none; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.small { font-size: 13px; padding: 6px 10px; }
+.btn.icon { padding: 5px 9px; color: var(--muted); }
+.btn svg { width: 16px; height: 16px; }
+.row-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+input[type=file] { display: none; }
+
+.choice { display: grid; gap: 10px; align-content: start; padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); text-align: left; cursor: pointer; color: var(--ink); }
+.choice:hover, .choice.over { border-color: var(--accent); }
+.choice .ic { width: 36px; height: 36px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; }
+.choice .ic svg { width: 19px; height: 19px; }
+.choice b { font-size: 15px; font-weight: 600; }
+.choice span { color: var(--muted); font-size: 13px; }
+.choice.recommended { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.tag { font: 600 11px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+.examples { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.issues { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.issues li { font-size: 13px; padding: 7px 10px; border-left: 3px solid; border-radius: 0 6px 6px 0; }
 .issues li.e { border-color: var(--crit); background: var(--crit-soft); }
 .issues li.w { border-color: var(--warn); background: var(--warn-soft); }
 .issues li.i { border-color: var(--ok); background: var(--ok-soft); }
-.issues .where { font-weight: 600; margin-right: 4px; }
-.files { font: 13px/1.6 var(--font-mono); word-break: break-all; }
+.issues .where { font-weight: 600; margin-right: 5px; }
+.issues button.go { margin-left: 6px; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; font-size: 12.5px; text-decoration: underline; }
+
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.kpi span { font-size: 12px; color: var(--muted); }
+.kpi b { display: block; font: 600 22px/1.2 var(--font-mono); font-variant-numeric: tabular-nums; margin-top: 2px; }
+.kpi.e b { color: var(--crit); } .kpi.w b { color: var(--warn); } .kpi.k b { color: var(--ok); }
+
+.nav { display: flex; justify-content: space-between; gap: 10px; margin-top: 18px; max-width: 1100px; }
+.files { font: 13px/1.7 var(--font-mono); word-break: break-all; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
-pre { margin: 0; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px; font: 12px/1.45 var(--font-mono); overflow: auto; max-height: 360px; white-space: pre; tab-size: 2; }
-.ptabs { display: flex; gap: 6px; }
+pre { margin: 0; background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 10px 12px; font: 12px/1.45 var(--font-mono); overflow: auto; max-height: 420px; white-space: pre; tab-size: 2; }
+.ptabs { display: flex; gap: 6px; margin-bottom: 8px; }
 .ptabs .btn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
 .toast { min-height: 20px; font-size: 13px; color: var(--ok); }
 .toast.bad { color: var(--crit); }
-[data-style="basic"] .full-only { display: none; }
-.drop { border: 2px dashed var(--line); border-radius: 8px; padding: 26px 16px; text-align: center; background: var(--panel); display: grid; gap: 10px; justify-items: center; }
+.lock { display: flex; gap: 12px; align-items: center; padding: 14px 16px; border-radius: 10px; }
+.lock.ok { background: var(--ok-soft); color: var(--ok); }
+.lock.crit { background: var(--crit-soft); color: var(--crit); }
+.lock svg { width: 22px; height: 22px; flex: none; }
+.lock b { display: block; font-size: 15px; }
+.lock span { color: var(--ink); font-size: 13px; }
+.drop { border: 2px dashed var(--line); border-radius: 10px; padding: 26px 16px; text-align: center; background: var(--panel); display: grid; gap: 10px; justify-items: center; }
 .drop.over { border-color: var(--accent); background: var(--accent-soft); }
-.results { display: grid; gap: 12px; margin-top: 14px; }
 .kv { color: var(--muted); font-size: 13px; }
 .kv b { color: var(--ink); font-weight: 500; font-family: var(--font-mono); }
 .rules { font-size: 13px; color: var(--muted); margin: 0; padding-left: 18px; display: grid; gap: 3px; }
+.full-only[hidden] { display: none; }
+[hidden] { display: none !important; }
+
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .rail { flex-direction: row; overflow-x: auto; padding: 8px 10px; gap: 8px; border-right: 0; border-bottom: 1px solid var(--rail-line); }
+  .rail h2, .railnote { display: none; }
+  .steps { display: flex; gap: 4px; }
+  .steps li { flex: none; }
+  .stepbtn { display: flex; gap: 7px; white-space: nowrap; padding: 7px 9px; }
+  .stepnum { width: 24px; height: 24px; font-size: 12px; }
+  .steptxt small { display: none; }
+  .railtool { width: auto; white-space: nowrap; }
+  .work { padding: 16px 16px 32px; }
+  .cols-2, .cols-3 { grid-template-columns: 1fr; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>RBS Site Script Generator</h1>
-  <p class="sub">Fill in the site data and get the Site Basic and Site Equipment files for AutoIntegration. Every value is checked first, and the files stay locked until there are no errors.</p>
-  <div class="tabs" role="tablist">
-    <button class="tab" role="tab" id="tab-gen" aria-selected="true" aria-controls="view-gen">Generate</button>
-    <button class="tab" role="tab" id="tab-chk" aria-selected="false" aria-controls="view-chk">Check a file</button>
-  </div>
-</header>
-<main>
-<section id="view-gen" class="view" role="tabpanel" aria-labelledby="tab-gen">
-  <div class="toolbar">
-    <span class="label">Start from:</span>
-    <button class="btn small" id="ex-a"></button>
-    <button class="btn small" id="ex-b"></button>
-    <label class="btn small" for="imp-file">Import ENM files…</label>
-    <input type="file" id="imp-file" accept=".xml,.txt" multiple>
-    <span class="loaded" id="loaded"></span>
-  </div>
-  <div class="grid">
-    <div class="form" id="form"></div>
-    <aside class="rail">
-      <div class="card" id="status-card">
-        <div class="status"><span id="status-pill" class="pill ok">Ready</span><span id="status-text"></span></div>
-        <ul class="issues" id="issues"></ul>
-      </div>
-      <div class="card">
-        <h2>Files</h2>
-        <div class="files" id="fnames"></div>
-        <div class="actions">
-          <button class="btn primary" id="dl">Download both (.zip)</button>
-          <button class="btn" id="cp-sb">Copy Site Basic</button>
-          <button class="btn" id="cp-eq">Copy Site Equipment</button>
-        </div>
-        <div class="toast" id="toast" role="status" aria-live="polite"></div>
-        <p class="hint" style="margin:0">The RBS Summary file in ENM points to these exact file names. If you change the node name or tag, update the summary too.</p>
-      </div>
-      <div class="card">
-        <h2>Preview</h2>
-        <div class="ptabs">
-          <button class="btn small" id="pv-sb" aria-pressed="true">Site Basic</button>
-          <button class="btn small" id="pv-eq" aria-pressed="false">Site Equipment</button>
-        </div>
-        <pre id="preview"></pre>
-      </div>
-      <div class="card">
-        <h2>MoShell checks after integration</h2>
-        <pre id="moshell"></pre>
-        <div class="actions"><button class="btn small" id="cp-mos">Copy commands</button></div>
-      </div>
-    </aside>
-  </div>
-</section>
+<div class="app">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M7.5 7.5l2 2M16.5 7.5l-2 2M12 11l-5 10h10z"/></svg></span>RBS Site Script Generator</div>
+    <div class="spacer"></div>
+    <div class="chipline">
+      <span class="tchip">Node <b id="tc-node">—</b></span>
+      <span class="tchip">Style <b id="tc-style">—</b></span>
+      <span class="tchip">Radios <b id="tc-radios">0</b></span>
+      <span id="tc-status" class="pill ok">Ready</span>
+    </div>
+  </header>
 
-<section id="view-chk" class="view" role="tabpanel" aria-labelledby="tab-chk" hidden>
-  <div class="drop" id="drop">
-    <div><b>Drop Site Basic / Site Equipment XML files here</b></div>
-    <div class="hint" style="margin:0">They are checked in your browser and never uploaded anywhere.</div>
-    <label class="btn primary" for="chk-file">Choose files…</label>
-    <input type="file" id="chk-file" accept=".xml,.txt" multiple>
-  </div>
-  <div class="results" id="results"></div>
-  <div class="card" style="margin-top:14px">
-    <h2>What the checker looks for</h2>
-    <ul class="rules">
-      <li>Every InterfaceIPv4 has exactly one of encapsulation or loopback, and loopback is written as <code>&lt;loopback /&gt;</code></li>
-      <li>No VLAN used twice on the same Ethernet port, VLAN 1–4094, one interface per VlanPort</li>
-      <li>Valid IPs, no duplicate IPs, overlapping subnets, next hop inside the router's subnet</li>
-      <li>Every reference (encapsulation, accessPoint, RF/RI ports, branches) points to an MO in the file</li>
-      <li>No spaces in MO ids or the file name; RI ports used once; fingerprint matches MeContext</li>
-    </ul>
-  </div>
-</section>
-</main>
+  <nav class="rail" aria-label="Workflow">
+    <h2>Workflow</h2>
+    <ol class="steps" id="steps"></ol>
+    <h2>Tools</h2>
+    <button class="railtool" id="nav-check" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>Check a script file</button>
+    <p class="railnote">Runs in your browser. Nothing is uploaded. Your draft is kept on this device.</p>
+  </nav>
+
+  <main class="work" id="work"></main>
+</div>
 
 <script>
 /* RBS Site Script Generator core — pure functions, no DOM.
@@ -815,251 +839,415 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
-  var KEY = 'rbs-sitegen-draft-v1';
-  var cfg, loadedLabel = '', previewWhich = 'sb', downloadsNs = null, last = { ok: false };
+  var KEY = 'rbs-sitegen-draft-v2';
+  var EXK = Object.keys(EXAMPLES);
+  var STEPS = [
+    { id: 'start', title: 'Start', sub: 'Import ENM files or start fresh' },
+    { id: 'site', title: 'Site & node', sub: 'Identity, ENM services, radios' },
+    { id: 'net', title: 'Interfaces', sub: 'Port, VLANs and IPs' },
+    { id: 'review', title: 'Review', sub: 'Check the plan before generating' },
+    { id: 'generate', title: 'Validate & generate', sub: 'Download the scripts' }
+  ];
+  var S = { cfg: null, label: '', step: 'start', view: 'flow', preview: 'sb', last: { ok: false }, visited: {} };
+  var downloadsNs = null;
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
   function escH(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-  function get(path) { return path.split('.').reduce(function (o, k) { return o == null ? o : o[k]; }, cfg); }
-  function set(path, v) { var ks = path.split('.'), o = cfg; for (var i = 0; i < ks.length - 1; i++) o = o[ks[i]]; o[ks[ks.length - 1]] = v; }
+  function get(path) { return path.split('.').reduce(function (o, k) { return o == null ? o : o[k]; }, S.cfg); }
+  function set(path, v) { var ks = path.split('.'), o = S.cfg; for (var i = 0; i < ks.length - 1; i++) o = o[ks[i]]; o[ks[ks.length - 1]] = v; }
 
-  function field(path, label, opts) {
-    opts = opts || {};
-    var v = get(path), id = 'f-' + path.replace(/\./g, '-');
-    var cls = 'f' + (opts.wide ? ' wide' : '') + (opts.fullOnly ? ' full-only' : '');
-    if (opts.type === 'select') {
-      return '<label class="' + cls + '" for="' + id + '">' + label + '<select id="' + id + '" data-path="' + path + '">' +
-        opts.options.map(function (o) { return '<option value="' + escH(o[0]) + '"' + (String(v) === String(o[0]) ? ' selected' : '') + '>' + escH(o[1]) + '</option>'; }).join('') + '</select></label>';
-    }
-    if (opts.type === 'check') {
-      return '<label class="chk' + (opts.fullOnly ? ' full-only' : '') + '" for="' + id + '"><input type="checkbox" id="' + id + '" data-path="' + path + '"' + (v ? ' checked' : '') + '> ' + label + '</label>';
-    }
-    if (opts.type === 'area') {
-      return '<label class="' + cls + '" for="' + id + '">' + label + '<textarea id="' + id + '" data-path="' + path + '" data-kind="' + (opts.kind || '') + '" spellcheck="false">' + escH(opts.kind === 'list' ? (v || []).join('\n') : v) + '</textarea></label>';
-    }
-    return '<label class="' + cls + '" for="' + id + '">' + label + '<input id="' + id + '" data-path="' + path + '" value="' + escH(v) + '" spellcheck="false" autocomplete="off"' + (opts.ph ? ' placeholder="' + escH(opts.ph) + '"' : '') + '></label>';
+  function blankConfig() {
+    return {
+      style: 'full', nodeName: '', subNetwork: 'NR', rootMo: 'ONRM_RootMo', networkMeId: '', fileTag: '',
+      user: { name: 'rbs', password: 'rbs' },
+      tn: { port: 'TN_IDL_C_1', fru: 'BB-1', mode: '1G_FULL', autoNeg: true },
+      oam: { router: 'OAM', vlanPort: 'OAM', vlan: '', ip: '', prefix: 27, gw: '' },
+      traffic: [
+        { router: 'Traffic_LTE', vlanPort: 'S1', vlan: '', ip: '', prefix: 27, gw: '' },
+        { router: 'NR_CP', vlanPort: 'NR_CP', vlan: '', ip: '', prefix: 27, gw: '' },
+        { router: 'NR_UP', vlanPort: 'NR_UP', vlan: '', ip: '', prefix: 27, gw: '' }
+      ],
+      f1: { enabled: true, cucp: '169.254.42.42', du: '169.254.42.43' },
+      snmp: { id: 'ENMFM', community: 'public', target: '' }, ntp: [], dns: '',
+      security: { certm: false, caFingerprint: '', caName: '', enrollUri: '', ldap: false, legalNotice: '', loginFailureDelay: 5, cliSshPort: 2023 },
+      radios: []
+    };
   }
-  function cell(path, cls) {
+
+  /* ---------- validation, grouped by step ---------- */
+  function stepOf(where) {
+    if (/^(Transport port|OAM|Traffic|Internal F1)/.test(where)) return 'net';
+    if (where === 'Self-check') return 'generate';
+    return 'site';
+  }
+  function trimmed() {
+    var c = clone(S.cfg);
+    (function walk(o) { Object.keys(o).forEach(function (k) { if (typeof o[k] === 'string') o[k] = o[k].trim(); else if (o[k] && typeof o[k] === 'object') walk(o[k]); }); })(c);
+    return c;
+  }
+  function evaluate() {
+    var c = trimmed(), v = Core.validateConfig(c), sb = '', eq = '', self = [];
+    if (!v.errors.length) {
+      try {
+        sb = Core.generateSiteBasic(c); eq = Core.generateSiteEquipment(c);
+        var l1 = Core.lintXml(sb), l2 = Core.lintXml(eq);
+        l1.errors.concat(l2.errors).forEach(function (x) { self.push({ where: 'Self-check', msg: x.msg }); });
+      } catch (ex) { self.push({ where: 'Self-check', msg: 'Generator failed: ' + ex.message }); }
+    }
+    var errors = v.errors.concat(self);
+    S.last = { ok: !errors.length, sb: sb, eq: eq, c: c, errors: errors, warnings: v.warnings };
+    return S.last;
+  }
+  function countFor(step, list) { return list.filter(function (x) { return stepOf(x.where) === step; }).length; }
+
+  /* ---------- small builders ---------- */
+  function field(path, label, o) {
+    o = o || {};
+    var v = get(path), id = 'f-' + path.replace(/\./g, '-'), cls = 'f' + (o.wide ? ' wide' : '');
+    if (o.type === 'select') return '<label class="' + cls + '" for="' + id + '">' + label + '<select id="' + id + '" data-path="' + path + '">' +
+      o.options.map(function (x) { return '<option value="' + escH(x[0]) + '"' + (String(v) === String(x[0]) ? ' selected' : '') + '>' + escH(x[1]) + '</option>'; }).join('') + '</select></label>';
+    if (o.type === 'check') return '<label class="chk" for="' + id + '"><input type="checkbox" id="' + id + '" data-path="' + path + '"' + (v ? ' checked' : '') + '> ' + label + '</label>';
+    if (o.type === 'area') return '<label class="' + cls + '" for="' + id + '">' + label + '<textarea id="' + id + '" data-path="' + path + '" data-kind="list" spellcheck="false" placeholder="' + escH(o.ph || '') + '">' + escH((v || []).join('\n')) + '</textarea></label>';
+    return '<label class="' + cls + '" for="' + id + '">' + label + '<input id="' + id + '" data-path="' + path + '" value="' + escH(v) + '" spellcheck="false" autocomplete="off"' + (o.ph ? ' placeholder="' + escH(o.ph) + '"' : '') + '></label>';
+  }
+  function cell(path, cls, ph) {
     var id = 'f-' + path.replace(/\./g, '-');
-    return '<td class="' + (cls || '') + '"><input id="' + id + '" aria-label="' + path + '" data-path="' + path + '" value="' + escH(get(path)) + '" spellcheck="false" autocomplete="off"></td>';
+    return '<td class="' + (cls || '') + '"><input id="' + id + '" aria-label="' + path + '" data-path="' + path + '" value="' + escH(get(path)) + '" spellcheck="false" autocomplete="off"' + (ph ? ' placeholder="' + ph + '"' : '') + '></td>';
   }
   function selCell(path, options) {
     var v = get(path), id = 'f-' + path.replace(/\./g, '-');
     return '<td><select id="' + id + '" aria-label="' + path + '" data-path="' + path + '">' + options.map(function (o) {
       return '<option value="' + escH(o[0]) + '"' + (String(v) === String(o[0]) ? ' selected' : '') + '>' + escH(o[1]) + '</option>'; }).join('') + '</select></td>';
   }
+  function issueList(list, withGo) {
+    return '<ul class="issues">' + list.map(function (x) {
+      var cls = x.kind || 'e', st = stepOf(x.where);
+      return '<li class="' + cls + '"><span class="where">' + escH(x.where) + ':</span>' + escH(x.msg) +
+        (withGo && st !== S.step ? '<button class="go" data-goto="' + st + '">Fix in ' + escH(STEPS.filter(function (s) { return s.id === st; })[0].title) + '</button>' : '') + '</li>';
+    }).join('') + '</ul>';
+  }
+  function stepIssuesPanel(step) {
+    var L = S.last, e = L.errors.filter(function (x) { return stepOf(x.where) === step; }),
+      w = L.warnings.filter(function (x) { return stepOf(x.where) === step; }).map(function (x) { return { where: x.where, msg: x.msg, kind: 'w' }; });
+    return '<div class="panel" id="step-issues"' + (e.length || w.length ? '' : ' hidden') + '><h2>Fix on this step</h2>' + issueList(e.concat(w), false) + '</div>';
+  }
+  function head(n, title, text, extra) {
+    return '<div class="stephead"><div><div class="eyebrow">Step ' + n + ' of 5</div><h1>' + title + '</h1><p>' + text + '</p></div>' + (extra || '') + '</div>';
+  }
+  function nav(prev, next, nextLabel) {
+    return '<div class="nav">' + (prev ? '<button class="btn" data-goto="' + prev + '">← Back</button>' : '<span></span>') +
+      (next ? '<button class="btn primary" data-goto="' + next + '">' + (nextLabel || 'Next') + ' →</button>' : '') + '</div>';
+  }
+  var ICON = {
+    imp: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>',
+    ex: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
+    blank: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+    ok: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>',
+    lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+    dl: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>'
+  };
 
-  function renderForm() {
-    var f = $('form');
-    f.setAttribute('data-style', cfg.style);
-    var traffic = cfg.traffic.map(function (t, i) {
-      var p = 'traffic.' + i + '.';
-      return '<tr>' + cell(p + 'router') + cell(p + 'vlanPort') + cell(p + 'vlan', 'n-col') + cell(p + 'ip', 'ip-col') + cell(p + 'prefix', 'p-col') + cell(p + 'gw', 'ip-col') +
-        '<td class="x-col"><button class="btn icon" data-del="traffic" data-i="' + i + '" aria-label="Remove traffic network ' + (i + 1) + '">✕</button></td></tr>';
-    }).join('');
-    var riOpts = Core.BB_RI_PORTS.map(function (p) { return [p, p]; });
-    var radios = cfg.radios.map(function (r, i) {
+  /* ---------- step views ---------- */
+  function viewStart() {
+    var cur = S.cfg && S.label ? '<div class="panel"><h2>Current draft</h2><p class="hint" style="margin:0 0 10px">' + escH(S.label) + (S.cfg.nodeName ? ' · node <b class="mono">' + escH(S.cfg.nodeName) + '</b>' : '') + '</p><button class="btn primary" data-goto="site">Continue with this draft →</button></div>' : '';
+    return head(1, 'Where do you want to start?', 'Import the files ENM generated for the site to pre-fill everything, or start with an empty form. You can come back here at any time.') +
+      '<div class="panelgrid">' + cur +
+      '<div class="cols-3">' +
+        '<label class="choice recommended" id="imp-drop" for="imp-file"><div class="ic">' + ICON.imp + '</div><div class="tag">Recommended</div><b>Import ENM files</b><span>Choose or drop the Site Basic and Site Equipment XML. Every value is read in and checked, so wrong VLANs or IPs show up straight away.</span><input type="file" id="imp-file" accept=".xml,.txt" multiple></label>' +
+        '<button class="choice" type="button" id="start-blank"><div class="ic">' + ICON.blank + '</div><b>Start from scratch</b><span>Empty form with the standard router names (OAM, Traffic_LTE, NR_CP, NR_UP) and internal F1 ready. Fill in from the TRM IP plan.</span></button>' +
+        '<div class="choice" style="cursor:default"><div class="ic">' + ICON.ex + '</div><b>Load an example</b><span>A complete working site to see how everything fits.</span><div class="examples">' +
+          EXK.map(function (k, i) { return '<button class="btn small" type="button" data-example="' + i + '">' + escH(k) + '</button>'; }).join('') + '</div></div>' +
+      '</div>' +
+      '<div class="panel"><h2>How it works</h2><ol class="rules" style="padding-left:20px"><li>Enter the node, ENM services and radios.</li><li>Enter the transport port, VLANs and IPs from the TRM plan.</li><li>Review the VLAN and IP plan side by side.</li><li>Generate: the files unlock only when every check passes, and the output is checked again before download.</li></ol></div>' +
+      '</div>';
+  }
+  function viewSite() {
+    var full = S.cfg.style === 'full', riOpts = Core.BB_RI_PORTS.map(function (p) { return [p, p]; });
+    var radios = S.cfg.radios.map(function (r, i) {
       var p = 'radios.' + i + '.';
       return '<tr>' + cell(p + 'sector', 'n-col') + selCell(p + 'type', [['RRU', 'RRU'], ['AIR', 'AIR']]) + cell(p + 'fru') +
         (r.type === 'RRU' ? selCell(p + 'branches', [['2', '2'], ['4', '4']]) : '<td class="kv">—</td>') + selCell(p + 'riPort', riOpts) +
         '<td class="x-col"><button class="btn icon" data-del="radios" data-i="' + i + '" aria-label="Remove radio ' + (i + 1) + '">✕</button></td></tr>';
     }).join('');
-    f.innerHTML =
-      '<fieldset><legend>Node</legend><div class="fields">' +
+    return head(2, 'Site & node information', 'Who the node is, which ENM servers it talks to, and which radios are on site.') +
+      '<div class="panelgrid">' + stepIssuesPanel('site') +
+      '<div class="panel"><h2>Node identity</h2><p class="hint">Use the exact name from ENM. No spaces anywhere.</p><div class="fields">' +
         field('style', 'Script style', { type: 'select', options: [['full', 'Full ENM style'], ['basic', 'Basic interim style']] }) +
-        field('nodeName', 'Node name (MeContext)') + field('networkMeId', 'Network ME ID') + field('subNetwork', 'SubNetwork') +
-        field('rootMo', 'Root SubNetwork') + field('fileTag', 'File name tag (optional)', { ph: 'e.g. 2026_10_29' }) +
+        field('nodeName', 'Node name (MeContext)', { ph: 'e.g. SITE-NL' }) + field('networkMeId', 'Network ME ID', { ph: 'same as node name if unsure' }) +
+        field('subNetwork', 'SubNetwork') + field('rootMo', 'Root SubNetwork') + field('fileTag', 'File name tag (optional)', { ph: 'e.g. 2026_10_29' }) +
         field('user.name', 'Maintenance user') + field('user.password', 'Maintenance password') +
-      '</div></fieldset>' +
-      '<fieldset><legend>Transport port</legend><div class="fields">' +
-        field('tn.port', 'TN port') + field('tn.fru', 'Baseband unit') +
-        field('tn.mode', 'Operating mode', { type: 'select', options: [['1G_FULL', '1G_FULL'], ['10G_FULL', '10G_FULL'], ['25G_FULL', '25G_FULL'], ['100M_FULL', '100M_FULL']] }) +
-        '<div style="align-self:end">' + field('tn.autoNeg', 'Auto-negotiation', { type: 'check' }) + '</div>' +
-      '</div></fieldset>' +
-      '<fieldset><legend>OAM</legend><div class="fields">' +
-        field('oam.router', 'Router') + field('oam.vlanPort', 'VlanPort') + field('oam.vlan', 'VLAN') +
-        field('oam.ip', 'IP') + field('oam.prefix', 'Prefix length') + field('oam.gw', 'Gateway') +
-      '</div></fieldset>' +
-      '<fieldset><legend>Traffic networks</legend><p class="hint">One row per router (S1/X2, NR CP, NR UP…). Each needs its own VLAN on the port.</p>' +
+      '</div></div>' +
+      '<div class="cols-2">' +
+        '<div class="panel"><h2>ENM services</h2><p class="hint">Alarm target and time sources for this ENM.</p><div class="fields">' +
+          field('snmp.target', 'ENM FM SNMP target', { ph: 'IP' }) + field('snmp.community', 'SNMP community') +
+          (full ? field('dns', 'DNS server (optional)', { ph: 'IP' }) : '') +
+          field('ntp', 'NTP servers (one per line)', { type: 'area', wide: true, ph: 'one IP per line' }) +
+        '</div></div>' +
+        (full ? '<div class="panel"><h2>Security</h2><p class="hint">Certificate enrollment and LDAP, as ENM generates them.</p><div class="fields">' +
+          '<div style="grid-column:1/-1;display:flex;gap:18px;flex-wrap:wrap">' + field('security.certm', 'Certificate enrollment', { type: 'check' }) + field('security.ldap', 'LDAP authentication', { type: 'check' }) + '</div>' +
+          (S.cfg.security.certm ? field('security.caFingerprint', 'CA fingerprint (SHA-1)', { wide: true }) + field('security.caName', 'Enrollment authority name', { wide: true }) + field('security.enrollUri', 'Enrollment server URI', { wide: true }) : '') +
+          field('security.legalNotice', 'Legal notice', { wide: true }) + field('security.loginFailureDelay', 'Login failure delay (s)') + field('security.cliSshPort', 'CLI SSH port') +
+        '</div></div>' : '<div class="panel"><h2>Security</h2><p class="hint" style="margin:0">Basic interim style has no security section. Switch to Full ENM style to add certificate enrollment and LDAP.</p></div>') +
+      '</div>' +
+      '<div class="panel"><h2>Radios</h2><p class="hint">One row per radio unit. RRU sectors get an antenna group named after the sector; AIR units use their transceiver. BB RI port is where the unit\'s DATA_1 fiber lands on the baseband.</p>' +
+        '<div class="tbl-wrap"><table><thead><tr><th>Sector</th><th>Type</th><th>Unit name</th><th>Branches</th><th>BB RI port</th><th></th></tr></thead><tbody>' +
+        (radios || '<tr><td colspan="6" class="hint" style="padding:10px 6px">No radios yet. Add the RRUs and AIR units on site.</td></tr>') + '</tbody></table></div>' +
+        '<div class="row-actions"><button class="btn small" id="add-rru">Add RRU</button><button class="btn small" id="add-air">Add AIR</button></div></div>' +
+      '</div>' + nav('start', 'net');
+  }
+  function viewNet() {
+    var traffic = S.cfg.traffic.map(function (t, i) {
+      var p = 'traffic.' + i + '.';
+      return '<tr>' + cell(p + 'router') + cell(p + 'vlanPort') + cell(p + 'vlan', 'n-col') + cell(p + 'ip', 'ip-col') + cell(p + 'prefix', 'p-col') + cell(p + 'gw', 'ip-col') +
+        '<td class="x-col"><button class="btn icon" data-del="traffic" data-i="' + i + '" aria-label="Remove traffic network ' + (i + 1) + '">✕</button></td></tr>';
+    }).join('');
+    return head(3, 'Interfaces, VLANs and IPs', 'Copy these from the TRM IP plan. Every traffic type needs its own VLAN on the port, and every gateway must sit inside its subnet.') +
+      '<div class="panelgrid">' + stepIssuesPanel('net') +
+      '<div class="cols-2">' +
+        '<div class="panel"><h2>Transport port</h2><p class="hint">Baseband port facing the transmission.</p><div class="fields">' +
+          field('tn.port', 'TN port') + field('tn.fru', 'Baseband unit') +
+          field('tn.mode', 'Operating mode', { type: 'select', options: [['1G_FULL', '1G_FULL'], ['10G_FULL', '10G_FULL'], ['25G_FULL', '25G_FULL'], ['100M_FULL', '100M_FULL']] }) +
+          '<div style="align-self:end">' + field('tn.autoNeg', 'Auto-negotiation', { type: 'check' }) + '</div>' +
+        '</div></div>' +
+        '<div class="panel"><h2>OAM</h2><p class="hint">How ENM reaches the node.</p><div class="fields">' +
+          field('oam.router', 'Router') + field('oam.vlanPort', 'VlanPort') + field('oam.vlan', 'VLAN') +
+          field('oam.ip', 'IP') + field('oam.prefix', 'Prefix') + field('oam.gw', 'Gateway') +
+        '</div></div>' +
+      '</div>' +
+      '<div class="panel"><h2>Traffic networks</h2><p class="hint">One row per router: 4G S1/X2, 5G CP, 5G UP…</p>' +
         '<div class="tbl-wrap"><table><thead><tr><th>Router</th><th>VlanPort</th><th>VLAN</th><th>IP</th><th>Prefix</th><th>Gateway</th><th></th></tr></thead><tbody>' + traffic + '</tbody></table></div>' +
-        '<div class="row-actions"><button class="btn small" id="add-traffic">Add traffic network</button></div></fieldset>' +
-      '<fieldset><legend>Internal F1 (NR CU–DU)</legend><div class="fields">' +
-        '<div style="align-self:end">' + field('f1.enabled', 'Create Node_Internal_F1 loopbacks', { type: 'check' }) + '</div>' +
+        '<div class="row-actions"><button class="btn small" id="add-traffic">Add traffic network</button></div></div>' +
+      '<div class="panel"><h2>Internal F1 (NR CU–DU)</h2><p class="hint">Loopbacks inside the node, written as <code>&lt;loopback /&gt;</code>. Keep the defaults unless your design says otherwise.</p><div class="fields">' +
+        '<div style="align-self:end">' + field('f1.enabled', 'Create Node_Internal_F1', { type: 'check' }) + '</div>' +
         field('f1.cucp', 'NRCUCP IP (/32)') + field('f1.du', 'NRDU IP (/32)') +
-      '</div></fieldset>' +
-      '<fieldset><legend>ENM services</legend><div class="fields">' +
-        field('snmp.target', 'ENM FM SNMP target') + field('snmp.community', 'SNMP community') +
-        field('dns', 'DNS server (optional)', { fullOnly: true }) +
-        field('ntp', 'NTP servers (one per line)', { type: 'area', kind: 'list', wide: true }) +
-      '</div></fieldset>' +
-      '<fieldset class="full-only"><legend>Security</legend><div class="fields">' +
-        '<div class="wide" style="grid-column:1/-1;display:flex;gap:18px;flex-wrap:wrap">' + field('security.certm', 'Certificate enrollment (CertM)', { type: 'check' }) + field('security.ldap', 'LDAP authentication', { type: 'check' }) + '</div>' +
-        field('security.caFingerprint', 'CA fingerprint (SHA-1)', { wide: true }) + field('security.caName', 'Enrollment authority name', { wide: true }) +
-        field('security.enrollUri', 'Enrollment server URI', { wide: true }) + field('security.legalNotice', 'Legal notice', { wide: true }) +
-        field('security.loginFailureDelay', 'Login failure delay (s)') + field('security.cliSshPort', 'CLI SSH port') +
-      '</div></fieldset>' +
-      '<fieldset><legend>Radios</legend><p class="hint">RRU sectors get an antenna group named after the sector. AIR units use their transceiver. RI port is the baseband port the unit\'s DATA_1 is cabled to.</p>' +
-        '<div class="tbl-wrap"><table><thead><tr><th>Sector</th><th>Type</th><th>Unit name</th><th>Branches</th><th>BB RI port</th><th></th></tr></thead><tbody>' + radios + '</tbody></table></div>' +
-        '<div class="row-actions"><button class="btn small" id="add-rru">Add RRU</button><button class="btn small" id="add-air">Add AIR</button></div></fieldset>';
+      '</div></div>' +
+      '</div>' + nav('site', 'review');
+  }
+  function viewReview() {
+    var c = S.last.c, L = S.last;
+    function row(label, r) { return '<tr><td>' + escH(label) + '</td><td>' + escH(r.router) + '</td><td>' + escH(r.vlanPort) + '</td><td>' + escH(r.vlan) + '</td><td>' + escH(r.ip) + '/' + escH(r.prefix) + '</td><td>' + escH(r.gw) + '</td></tr>'; }
+    var rr = c.radios.filter(function (r) { return r.type === 'RRU'; }).length, ar = c.radios.length - rr;
+    var allIssues = L.errors.concat(L.warnings.map(function (x) { return { where: x.where, msg: x.msg, kind: 'w' }; }));
+    return head(4, 'Review the configuration', 'Compare this with the TRM plan and the site\'s radio layout before generating.') +
+      '<div class="panelgrid">' +
+      '<div class="kpis">' +
+        '<div class="kpi ' + (L.errors.length ? 'e' : 'k') + '"><span>Errors</span><b>' + L.errors.length + '</b></div>' +
+        '<div class="kpi ' + (L.warnings.length ? 'w' : 'k') + '"><span>Warnings</span><b>' + L.warnings.length + '</b></div>' +
+        '<div class="kpi"><span>Networks</span><b>' + (c.traffic.length + 1) + '</b></div>' +
+        '<div class="kpi"><span>Radios</span><b>' + rr + ' RRU · ' + ar + ' AIR</b></div>' +
+      '</div>' +
+      (allIssues.length ? '<div class="panel"><h2>Open issues</h2>' + issueList(allIssues, true) + '</div>' : '') +
+      '<div class="panel"><h2>VLAN and IP plan</h2><div class="tbl-wrap"><table class="rtable"><thead><tr><th>Network</th><th>Router</th><th>VlanPort</th><th>VLAN</th><th>IP / prefix</th><th>Gateway</th></tr></thead><tbody>' +
+        row('OAM', c.oam) + c.traffic.map(function (t, i) { return row('Traffic ' + (i + 1), t); }).join('') +
+        (c.f1.enabled ? '<tr><td>Internal F1</td><td>Node_Internal_F1</td><td>loopback</td><td>—</td><td>' + escH(c.f1.cucp) + ' / ' + escH(c.f1.du) + '</td><td>—</td></tr>' : '') +
+        '</tbody></table></div><p class="hint" style="margin:8px 0 0">Port <b class="mono">' + escH(c.tn.port) + '</b> on <b class="mono">' + escH(c.tn.fru) + '</b>, ' + escH(c.tn.mode) + ', auto-negotiation ' + (c.tn.autoNeg ? 'on' : 'off') + '.</p></div>' +
+      '<div class="cols-2">' +
+        '<div class="panel"><h2>Node and services</h2><table class="rtable"><tbody>' +
+          '<tr><td>Node</td><td>' + escH(c.nodeName) + '</td></tr><tr><td>Network ME ID</td><td>' + escH(c.networkMeId || c.nodeName) + '</td></tr>' +
+          '<tr><td>dnPrefix</td><td>SubNetwork=' + escH(c.rootMo) + ',SubNetwork=' + escH(c.subNetwork) + ',MeContext=' + escH(c.nodeName) + '</td></tr>' +
+          '<tr><td>Style</td><td>' + (c.style === 'full' ? 'Full ENM' : 'Basic interim') + '</td></tr>' +
+          '<tr><td>SNMP target</td><td>' + escH(c.snmp.target) + '</td></tr><tr><td>NTP</td><td>' + escH(c.ntp.join(', ')) + '</td></tr>' +
+          (c.style === 'full' ? '<tr><td>DNS</td><td>' + escH(c.dns || '—') + '</td></tr><tr><td>Security</td><td>' + (c.security.certm ? 'CertM' : 'no CertM') + ', ' + (c.security.ldap ? 'LDAP' : 'no LDAP') + '</td></tr>' : '') +
+        '</tbody></table></div>' +
+        '<div class="panel"><h2>Radios and RI links</h2><div class="tbl-wrap"><table class="rtable"><thead><tr><th>Sector</th><th>Unit</th><th>Branches</th><th>BB port</th></tr></thead><tbody>' +
+          c.radios.map(function (r) { return '<tr><td>' + escH(r.sector) + '</td><td>' + escH(r.fru) + '</td><td>' + (r.type === 'RRU' ? escH(r.branches) : 'AAS') + '</td><td>' + escH(r.riPort) + '</td></tr>'; }).join('') +
+        '</tbody></table></div></div>' +
+      '</div></div>' + nav('net', 'generate', 'Validate & generate');
+  }
+  function viewGenerate() {
+    var L = S.last, names = Core.fileNames(L.c);
+    var lock = L.ok
+      ? '<div class="lock ok">' + ICON.ok + '<div><b>' + (L.warnings.length ? 'Ready, with ' + L.warnings.length + ' warning' + (L.warnings.length > 1 ? 's' : '') : 'Ready to load') + '</b><span>Inputs pass every check, and the generated XML was checked again: loopbacks are empty tags, every VLAN is unique on the port and every reference resolves.</span></div></div>'
+      : '<div class="lock crit">' + ICON.lock + '<div><b>Locked: ' + L.errors.length + ' error' + (L.errors.length > 1 ? 's' : '') + ' to fix</b><span>The files unlock when every error below is fixed.</span></div></div>';
+    var issues = L.errors.concat(L.warnings.map(function (x) { return { where: x.where, msg: x.msg, kind: 'w' }; }));
+    return head(5, 'Validate & generate', 'Download both files for SMRS, or copy them. Then run the MoShell checks after integration.') +
+      '<div class="panelgrid">' + lock +
+      (issues.length ? '<div class="panel"><h2>' + (L.ok ? 'Warnings' : 'Errors') + '</h2>' + issueList(issues, true) + '</div>' : '') +
+      '<div class="cols-2">' +
+        '<div class="panel"><h2>Files</h2><div class="files">' + escH(names.basic) + '<br>' + escH(names.equip) + '</div>' +
+          '<div class="actions" style="margin-top:10px"><button class="btn primary" id="dl"' + (L.ok ? '' : ' disabled') + '>' + ICON.dl + 'Download both (.zip)</button>' +
+          '<button class="btn" id="cp-sb"' + (L.ok ? '' : ' disabled') + '>Copy Site Basic</button><button class="btn" id="cp-eq"' + (L.ok ? '' : ' disabled') + '>Copy Site Equipment</button></div>' +
+          '<div class="toast" id="toast" role="status" aria-live="polite"></div>' +
+          '<p class="hint" style="margin:4px 0 0">The RBS Summary file in ENM points to these exact file names. If you change the node name or tag, update the summary too.</p></div>' +
+        '<div class="panel"><h2>MoShell checks after integration</h2><pre id="moshell">' + escH(Core.moshellChecks(L.c).join('\n')) + '</pre><div class="actions" style="margin-top:8px"><button class="btn small" id="cp-mos">Copy commands</button></div></div>' +
+      '</div>' +
+      '<div class="panel"><h2>Preview</h2><div class="ptabs"><button class="btn small" id="pv-sb" aria-pressed="' + (S.preview === 'sb') + '">Site Basic</button><button class="btn small" id="pv-eq" aria-pressed="' + (S.preview === 'eq') + '">Site Equipment</button></div>' +
+        '<pre id="preview">' + escH(L.ok ? (S.preview === 'sb' ? L.sb : L.eq).replace(/\r\n/g, '\n') : 'Preview appears when there are no errors.') + '</pre></div>' +
+      '</div>' + nav('review', null);
+  }
+  function viewCheck() {
+    return '<div class="stephead"><div><div class="eyebrow">Tool</div><h1>Check a script file</h1><p>Drop any Site Basic or Site Equipment XML, for example the one ENM generated, and see what the node would reject before you go to site.</p></div></div>' +
+      '<div class="panelgrid"><div class="drop" id="drop"><div><b>Drop XML files here</b></div><div class="hint">Checked in your browser. Nothing is uploaded.</div><label class="btn primary" for="chk-file">Choose files…</label><input type="file" id="chk-file" accept=".xml,.txt" multiple></div>' +
+      '<div class="panelgrid" id="results"></div>' +
+      '<div class="panel"><h2>What it checks</h2><ul class="rules">' +
+        '<li>Every InterfaceIPv4 has exactly one of encapsulation or loopback, and loopback is written as <code>&lt;loopback /&gt;</code></li>' +
+        '<li>No VLAN used twice on the same Ethernet port; VLAN 1–4094; one interface per VlanPort</li>' +
+        '<li>Valid IPs, no duplicate IPs, overlapping subnets, next hop inside the router\'s subnet</li>' +
+        '<li>Every reference (encapsulation, accessPoint, RF/RI ports, branches) points to an MO in the file</li>' +
+        '<li>No spaces in MO ids or the file name; RI ports used once; fingerprint matches MeContext</li></ul></div></div>';
   }
 
-  function nextFree(list, prefix) { var n = 1; while (list.indexOf(prefix + n) >= 0) n++; return prefix + n; }
-  function freeRi() { var used = cfg.radios.map(function (r) { return r.riPort; }); return Core.BB_RI_PORTS.filter(function (p) { return used.indexOf(p) < 0; })[0] || 'A'; }
-
-  function onFormClick(e) {
-    var b = e.target.closest('button'); if (!b) return;
-    if (b.dataset.del) { e.preventDefault(); cfg[b.dataset.del].splice(+b.dataset.i, 1); renderForm(); refresh(); return; }
-    if (b.id === 'add-traffic') { cfg.traffic.push({ router: '', vlanPort: '', vlan: '', ip: '', prefix: '', gw: '' }); renderForm(); refresh(); }
-    if (b.id === 'add-rru' || b.id === 'add-air') {
-      var secs = cfg.radios.map(function (r) { return r.sector; }), frus = cfg.radios.map(function (r) { return r.fru; });
-      var s = nextFree(secs, 'S');
-      if (b.id === 'add-rru') cfg.radios.push({ type: 'RRU', sector: s, fru: 'RRU-' + s, branches: 2, riPort: freeRi() });
-      else cfg.radios.push({ type: 'AIR', sector: s, fru: nextFree(frus, 'AIR-'), branches: '', riPort: freeRi() });
-      renderForm(); refresh();
+  /* ---------- render ---------- */
+  function renderRail() {
+    var L = S.last;
+    $('steps').innerHTML = STEPS.map(function (s, i) {
+      var e = countFor(s.id, L.errors), w = countFor(s.id, L.warnings), badge = '';
+      if (s.id === 'review' || s.id === 'generate') { e = s.id === 'generate' ? L.errors.length : 0; w = 0; }
+      if (s.id === 'start') badge = '';
+      else if (e) badge = '<span class="badge e" title="' + e + ' error(s)">' + e + '</span>';
+      else if (w) badge = '<span class="badge w" title="' + w + ' warning(s)">' + w + '</span>';
+      else if (S.visited[s.id]) badge = '<span class="badge k" aria-label="no issues">✓</span>';
+      var cur = S.view === 'flow' && S.step === s.id;
+      return '<li><button class="stepbtn' + (S.visited[s.id] && !e ? ' done' : '') + '" data-goto="' + s.id + '"' + (cur ? ' aria-current="step"' : '') + '>' +
+        '<span class="stepnum">' + (i + 1) + '</span><span class="steptxt"><b>' + s.title + '</b><small>' + s.sub + '</small></span>' + badge + '</button></li>';
+    }).join('');
+    $('nav-check').setAttribute('aria-current', S.view === 'check' ? 'page' : 'false');
+    var pill = $('tc-status');
+    pill.className = 'pill ' + (L.ok ? (L.warnings.length ? 'warn' : 'ok') : 'crit');
+    pill.textContent = L.ok ? (L.warnings.length ? L.warnings.length + ' warning' + (L.warnings.length > 1 ? 's' : '') : 'Ready') : L.errors.length + ' error' + (L.errors.length > 1 ? 's' : '');
+    $('tc-node').textContent = S.cfg.nodeName || '—';
+    $('tc-style').textContent = S.cfg.style === 'full' ? 'Full ENM' : 'Basic';
+    $('tc-radios').textContent = S.cfg.radios.length;
+  }
+  function render(keepFocus) {
+    evaluate();
+    var w = $('work');
+    if (S.view === 'check') w.innerHTML = viewCheck();
+    else w.innerHTML = { start: viewStart, site: viewSite, net: viewNet, review: viewReview, generate: viewGenerate }[S.step]();
+    renderRail(); markInvalid(); save();
+    if (!keepFocus) { w.scrollTop = 0; window.scrollTo(0, 0); }
+  }
+  function softRefresh() {
+    // re-validate without rebuilding the form (keeps focus while typing)
+    evaluate(); renderRail(); markInvalid(); save();
+    var p = $('step-issues');
+    if (p) {
+      var L = S.last, e = L.errors.filter(function (x) { return stepOf(x.where) === S.step; }),
+        w = L.warnings.filter(function (x) { return stepOf(x.where) === S.step; }).map(function (x) { return { where: x.where, msg: x.msg, kind: 'w' }; });
+      p.hidden = !(e.length || w.length);
+      p.innerHTML = '<h2>Fix on this step</h2>' + issueList(e.concat(w), false);
     }
   }
-  function onFormInput(e) {
-    var el = e.target, path = el.dataset.path; if (!path) return;
+  function markInvalid() {
+    // highlight inputs whose value is named in an error message
+    var msgs = S.last.errors.map(function (x) { return x.where + ' ' + x.msg; }).join('\n');
+    document.querySelectorAll('#work input[data-path]').forEach(function (el) {
+      var v = el.value.trim(), path = el.dataset.path, bad = false;
+      if (!v && /(nodeName|\.vlan$|\.ip$|\.gw$|\.prefix$|snmp\.target|\.sector$|\.fru$|\.router$|\.vlanPort$)/.test(path)) bad = /is empty|not a valid|must be/.test(msgs) && S.visited[S.step];
+      else if (v && v.length > 1 && msgs.indexOf('"' + v + '"') >= 0) bad = true;
+      else if (v && /^\d{3,4}$/.test(v) && /\.vlan$/.test(path) && msgs.indexOf('VLAN ' + v + ' is already') >= 0) bad = true;
+      else if (v && /\.(ip|gw)$/.test(path) && new RegExp('(Gateway|IP) ' + v.replace(/\./g, '\\.') + ' ').test(msgs)) bad = true;
+      el.setAttribute('aria-invalid', bad ? 'true' : 'false');
+    });
+  }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify({ cfg: S.cfg, label: S.label, step: S.step, visited: S.visited })); } catch (e) {} }
+  function go(step) { S.view = 'flow'; S.step = step; S.visited[step] = true; try { history.replaceState(null, '', '#' + step); } catch (e) {} render(); }
+  function load(c, label, step) { S.cfg = clone(c); S.label = label; S.visited = {}; go(step || 'site'); }
+
+  /* ---------- events ---------- */
+  function nextFree(list, prefix) { var n = 1; while (list.indexOf(prefix + n) >= 0) n++; return prefix + n; }
+  function freeRi() { var used = S.cfg.radios.map(function (r) { return r.riPort; }); return Core.BB_RI_PORTS.filter(function (p) { return used.indexOf(p) < 0; })[0] || 'A'; }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.goto) { go(b.dataset.goto); return; }
+    if (b.id === 'nav-check') { S.view = 'check'; try { history.replaceState(null, '', '#check'); } catch (x) {} render(); return; }
+    if (b.dataset.example !== undefined) { var k = EXK[+b.dataset.example]; load(EXAMPLES[k], k + ' example'); return; }
+    if (b.id === 'start-blank') { load(blankConfig(), 'new site from scratch'); return; }
+    if (b.dataset.del) { S.cfg[b.dataset.del].splice(+b.dataset.i, 1); render(true); return; }
+    if (b.id === 'add-traffic') { S.cfg.traffic.push({ router: '', vlanPort: '', vlan: '', ip: '', prefix: 27, gw: '' }); render(true); return; }
+    if (b.id === 'add-rru' || b.id === 'add-air') {
+      var secs = S.cfg.radios.map(function (r) { return r.sector; }), frus = S.cfg.radios.map(function (r) { return r.fru; }), s = nextFree(secs, 'S');
+      if (b.id === 'add-rru') S.cfg.radios.push({ type: 'RRU', sector: s, fru: 'RRU-' + s, branches: 4, riPort: freeRi() });
+      else S.cfg.radios.push({ type: 'AIR', sector: s, fru: nextFree(frus, 'AIR-'), branches: '', riPort: freeRi() });
+      render(true); return;
+    }
+    if (b.id === 'dl') { download(); return; }
+    if (b.id === 'cp-sb' && S.last.ok) { copy(S.last.sb, 'Site Basic'); return; }
+    if (b.id === 'cp-eq' && S.last.ok) { copy(S.last.eq, 'Site Equipment'); return; }
+    if (b.id === 'cp-mos') { copy($('moshell').textContent, 'MoShell commands'); return; }
+    if (b.id === 'pv-sb' || b.id === 'pv-eq') { S.preview = b.id === 'pv-sb' ? 'sb' : 'eq'; render(true); }
+  });
+  function onField(e) {
+    var el = e.target, path = el.dataset && el.dataset.path; if (!path) return;
     var v = el.type === 'checkbox' ? el.checked : el.value;
     if (el.dataset.kind === 'list') v = el.value.split(/[\s,;]+/).filter(Boolean);
     set(path, v);
-    if (path === 'style' || /\.type$/.test(path)) {
-      if (/\.type$/.test(path)) { var r = get(path.replace(/\.type$/, '')); if (v === 'RRU' && !r.branches) r.branches = 2; if (v === 'AIR') r.branches = ''; }
-      renderForm();
-    }
-    refresh();
+    var rebuild = path === 'style' || path === 'security.certm' || /\.type$/.test(path);
+    if (/\.type$/.test(path)) { var r = get(path.replace(/\.type$/, '')); if (v === 'RRU' && !r.branches) r.branches = 4; if (v === 'AIR') r.branches = ''; }
+    if (rebuild) render(true); else softRefresh();
   }
+  document.addEventListener('input', function (e) { if (e.target.tagName !== 'SELECT' && e.target.type !== 'checkbox' && e.target.type !== 'file') onField(e); });
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'imp-file') { readFiles(e.target.files, importFiles); e.target.value = ''; return; }
+    if (e.target.id === 'chk-file') { readFiles(e.target.files, check); e.target.value = ''; return; }
+    if (e.target.tagName === 'SELECT' || e.target.type === 'checkbox') onField(e);
+  });
+  ['dragover', 'dragleave', 'drop'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+      var z = e.target.closest && e.target.closest('#drop, #imp-drop'); if (!z) return;
+      e.preventDefault();
+      if (ev === 'dragover') z.classList.add('over');
+      else { z.classList.remove('over'); if (ev === 'drop') readFiles(e.dataTransfer.files, z.id === 'drop' ? check : importFiles); }
+    });
+  });
 
-  function trimmed() {
-    var c = clone(cfg);
-    (function walk(o) { Object.keys(o).forEach(function (k) { if (typeof o[k] === 'string') o[k] = o[k].trim(); else if (o[k] && typeof o[k] === 'object') walk(o[k]); }); })(c);
-    return c;
-  }
-
-  function refresh() {
-    try { localStorage.setItem(KEY, JSON.stringify({ cfg: cfg, label: loadedLabel })); } catch (e) {}
-    var c = trimmed(), v = Core.validateConfig(c), items = [], sb = '', eq = '', lintE = [];
-    if (!v.errors.length) {
-      try {
-        sb = Core.generateSiteBasic(c); eq = Core.generateSiteEquipment(c);
-        var l1 = Core.lintXml(sb), l2 = Core.lintXml(eq);
-        lintE = l1.errors.concat(l2.errors);
-        l1.warnings.concat(l2.warnings).forEach(function (w) { if (!v.warnings.some(function (x) { return w.msg.indexOf('overlaps') >= 0 && x.msg.indexOf('overlaps') >= 0; })) v.warnings.push({ where: 'Self-check', msg: w.msg }); });
-      } catch (ex) { lintE.push({ msg: 'Generator failed: ' + ex.message }); }
-    }
-    var errs = v.errors.concat(lintE.map(function (x) { return { where: 'Self-check', msg: x.msg }; }));
-    var ok = !errs.length;
-    last = { ok: ok, sb: sb, eq: eq, c: c };
-    var pill = $('status-pill');
-    pill.className = 'pill ' + (ok ? (v.warnings.length ? 'warn' : 'ok') : 'crit');
-    pill.textContent = ok ? (v.warnings.length ? 'Ready with warnings' : 'Ready') : errs.length + ' error' + (errs.length > 1 ? 's' : '');
-    $('status-text').textContent = ok ? 'Files pass every check.' : 'Fix these before the files unlock.';
-    errs.forEach(function (x) { items.push('<li class="e"><span class="where">' + escH(x.where) + ':</span>' + escH(x.msg) + '</li>'); });
-    v.warnings.forEach(function (x) { items.push('<li class="w"><span class="where">' + escH(x.where) + ':</span>' + escH(x.msg) + '</li>'); });
-    if (ok) items.push('<li class="i">Self-check on the generated XML: 0 errors. Loopbacks are empty tags, every VLAN is unique, and every reference resolves.</li>');
-    $('issues').innerHTML = items.join('');
-    var names = Core.fileNames(c);
-    $('fnames').innerHTML = escH(names.basic) + '<br>' + escH(names.equip);
-    ['dl', 'cp-sb', 'cp-eq'].forEach(function (id) { $(id).disabled = !ok; });
-    $('dl').title = ok ? '' : 'Fix the errors first';
-    $('preview').textContent = ok ? (previewWhich === 'sb' ? sb : eq).replace(/\r\n/g, '\n') : 'Preview appears when there are no errors.';
-    try { $('moshell').textContent = Core.moshellChecks(c).join('\n'); } catch (e) { $('moshell').textContent = ''; }
-    $('loaded').innerHTML = loadedLabel ? 'Loaded: <b>' + escH(loadedLabel) + '</b>' : '';
-  }
-
-  function toast(msg, bad) { var t = $('toast'); t.textContent = msg; t.className = 'toast' + (bad ? ' bad' : ''); clearTimeout(toast.t); toast.t = setTimeout(function () { t.textContent = ''; }, 5000); }
-  function copy(text, what) {
-    function fallback() {
-      var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
-      var ok = false; try { ok = document.execCommand('copy'); } catch (e) {} ta.remove();
-      toast(ok ? what + ' copied' : 'Copy was blocked — select the text in Preview and copy it', !ok);
-    }
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast(what + ' copied'); }, fallback);
-    else fallback();
-  }
-  function download() {
-    if (!last.ok) return;
-    var names = Core.fileNames(last.c);
-    var zip = Core.makeZip([{ name: names.basic, data: last.sb }, { name: names.equip, data: last.eq }]);
-    var zname = last.c.nodeName + '_site_scripts.zip', blob = new Blob([zip], { type: 'application/zip' });
-    if (downloadsNs) {
-      downloadsNs.save({ filename: zname, data: blob }).then(function () { toast('Saved ' + zname); }, function (e) {
-        toast(e && e.code === 'declined' ? 'Download cancelled' : 'Download not available here — use the Copy buttons', true);
-      });
-      return;
-    }
-    try {
-      var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = zname; document.body.appendChild(a); a.click();
-      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-      toast('Saving ' + zname + ' — if nothing downloads, use the Copy buttons');
-    } catch (e) { toast('Download not available here — use the Copy buttons', true); }
-  }
-
-  function load(c, label) { cfg = clone(c); loadedLabel = label; renderForm(); refresh(); }
   function readFiles(fileList, cb) {
-    var files = Array.prototype.slice.call(fileList), out = [], n = files.length;
+    var files = Array.prototype.slice.call(fileList || []), out = [], n = files.length;
     if (!n) return;
     files.forEach(function (f, i) { var r = new FileReader(); r.onload = function () { out[i] = { name: f.name, text: String(r.result) }; if (--n === 0) cb(out); }; r.readAsText(f); });
   }
-
-  // import into generator
-  $('imp-file').addEventListener('change', function (e) {
-    readFiles(e.target.files, function (fs) {
-      var r = Core.importFiles(fs.map(function (f) { return f.text; }), cfg);
-      load(r.cfg, 'imported from ' + fs.map(function (f) { return f.name; }).join(', '));
-      toast(r.notes.join(' '), false);
-      e.target.value = '';
-    });
-  });
-  var EXK = Object.keys(EXAMPLES);
-  $('ex-a').textContent = EXK[0] + ' example'; $('ex-b').textContent = EXK[1] + ' example';
-  $('ex-a').addEventListener('click', function () { load(EXAMPLES[EXK[0]], EXK[0] + ' example'); });
-  $('ex-b').addEventListener('click', function () { load(EXAMPLES[EXK[1]], EXK[1] + ' example'); });
-  $('form').addEventListener('input', onFormInput);
-  $('form').addEventListener('change', function (e) { if (e.target.tagName === 'SELECT' || e.target.type === 'checkbox') onFormInput(e); });
-  $('form').addEventListener('click', onFormClick);
-  $('dl').addEventListener('click', download);
-  $('cp-sb').addEventListener('click', function () { if (last.ok) copy(last.sb, 'Site Basic'); });
-  $('cp-eq').addEventListener('click', function () { if (last.ok) copy(last.eq, 'Site Equipment'); });
-  $('cp-mos').addEventListener('click', function () { copy($('moshell').textContent, 'MoShell commands'); });
-  $('pv-sb').addEventListener('click', function () { previewWhich = 'sb'; $('pv-sb').setAttribute('aria-pressed', 'true'); $('pv-eq').setAttribute('aria-pressed', 'false'); refresh(); });
-  $('pv-eq').addEventListener('click', function () { previewWhich = 'eq'; $('pv-eq').setAttribute('aria-pressed', 'true'); $('pv-sb').setAttribute('aria-pressed', 'false'); refresh(); });
-
-  // tabs
-  function showTab(which) {
-    var gen = which !== 'check';
-    $('tab-gen').setAttribute('aria-selected', String(gen)); $('tab-chk').setAttribute('aria-selected', String(!gen));
-    $('view-gen').hidden = !gen; $('view-chk').hidden = gen;
+  function importFiles(fs) {
+    var r = Core.importFiles(fs.map(function (f) { return f.text; }), S.cfg || blankConfig());
+    load(r.cfg, 'imported from ' + fs.map(function (f) { return f.name; }).join(', '), 'review');
   }
-  $('tab-gen').addEventListener('click', function () { showTab('gen'); try { history.replaceState(null, '', '#generate'); } catch (e) {} });
-  $('tab-chk').addEventListener('click', function () { showTab('check'); try { history.replaceState(null, '', '#check'); } catch (e) {} });
-  window.addEventListener('hashchange', function () { showTab(location.hash === '#check' ? 'check' : 'gen'); });
-
-  // checker
   function check(fs) {
     $('results').innerHTML = fs.map(function (f) {
       var r = Core.lintXml(f.text, f.name), cls = r.errors.length ? 'crit' : (r.warnings.length ? 'warn' : 'ok');
       var label = r.errors.length ? r.errors.length + ' error' + (r.errors.length > 1 ? 's' : '') : (r.warnings.length ? 'Loads, with warnings' : 'No problems found');
       var li = r.errors.map(function (x) { return '<li class="e"><span class="where">' + (x.line ? 'Line ' + x.line : 'File') + ':</span>' + escH(x.msg) + '</li>'; })
         .concat(r.warnings.map(function (x) { return '<li class="w"><span class="where">' + (x.line ? 'Line ' + x.line : 'File') + ':</span>' + escH(x.msg) + '</li>'; }));
-      return '<div class="card"><div class="status"><span class="pill ' + cls + '">' + label + '</span><span class="files">' + escH(f.name) + '</span></div>' +
-        '<div class="kv">Type <b>' + escH(r.info.kind) + '</b> · Node <b>' + escH(r.info.node || '?') + '</b> · MOs <b>' + r.info.moCount + '</b></div>' +
-        (li.length ? '<ul class="issues" style="max-height:none">' + li.join('') + '</ul>' : '') + '</div>';
+      return '<div class="panel"><h2><span class="pill ' + cls + '">' + label + '</span><span class="files">' + escH(f.name) + '</span></h2>' +
+        '<div class="kv" style="margin:6px 0 10px">Type <b>' + escH(r.info.kind) + '</b> · Node <b>' + escH(r.info.node || '?') + '</b> · MOs <b>' + r.info.moCount + '</b></div>' +
+        (li.length ? '<ul class="issues">' + li.join('') + '</ul>' : '') + '</div>';
     }).join('');
   }
-  $('chk-file').addEventListener('change', function (e) { readFiles(e.target.files, check); e.target.value = ''; });
-  var drop = $('drop');
-  drop.addEventListener('dragover', function (e) { e.preventDefault(); drop.classList.add('over'); });
-  drop.addEventListener('dragleave', function () { drop.classList.remove('over'); });
-  drop.addEventListener('drop', function (e) { e.preventDefault(); drop.classList.remove('over'); readFiles(e.dataTransfer.files, check); });
-
-  // start
-  var saved = null; try { saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
-  if (saved && saved.cfg && saved.cfg.radios) load(saved.cfg, saved.label || 'your last draft'); else load(EXAMPLES[EXK[0]], EXK[0] + ' example');
-  showTab(location.hash === '#check' ? 'check' : 'gen');
-  if (window.claude && typeof window.claude.use === 'function') {
-    window.claude.use('downloads').then(function (ns) { downloadsNs = ns; }, function () {});
+  function toast(msg, bad) { var t = $('toast'); if (!t) return; t.textContent = msg; t.className = 'toast' + (bad ? ' bad' : ''); clearTimeout(toast.t); toast.t = setTimeout(function () { t.textContent = ''; }, 5000); }
+  function copy(text, what) {
+    function fallback() {
+      var ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) {} ta.remove();
+      toast(ok ? what + ' copied' : 'Copy was blocked. Select the text in Preview and copy it.', !ok);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { toast(what + ' copied'); }, fallback);
+    else fallback();
   }
+  function download() {
+    if (!S.last.ok) return;
+    var names = Core.fileNames(S.last.c);
+    var zip = Core.makeZip([{ name: names.basic, data: S.last.sb }, { name: names.equip, data: S.last.eq }]);
+    var zname = S.last.c.nodeName + '_site_scripts.zip', blob = new Blob([zip], { type: 'application/zip' });
+    if (downloadsNs) {
+      downloadsNs.save({ filename: zname, data: blob }).then(function () { toast('Saved ' + zname); }, function (e) {
+        toast(e && e.code === 'declined' ? 'Download cancelled' : 'Download not available here. Use the Copy buttons.', true);
+      });
+      return;
+    }
+    try {
+      var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = zname; document.body.appendChild(a); a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+      toast('Saving ' + zname + '. If nothing downloads, use the Copy buttons.');
+    } catch (e) { toast('Download not available here. Use the Copy buttons.', true); }
+  }
+
+  /* ---------- start ---------- */
+  var saved = null; try { saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+  if (saved && saved.cfg && saved.cfg.radios) { S.cfg = saved.cfg; S.label = saved.label || 'your last draft'; S.visited = saved.visited || {}; }
+  else { S.cfg = clone(EXAMPLES[EXK[0]]); S.label = EXK[0] + ' example'; }
+  var h = (location.hash || '').slice(1);
+  if (h === 'check') { S.view = 'check'; render(); }
+  else go(STEPS.some(function (s) { return s.id === h; }) ? h : 'start');
+  window.addEventListener('hashchange', function () { var x = location.hash.slice(1); if (x === 'check') { S.view = 'check'; render(); } else if (STEPS.some(function (s) { return s.id === x; }) && (x !== S.step || S.view !== 'flow')) go(x); });
+  if (window.claude && typeof window.claude.use === 'function') window.claude.use('downloads').then(function (ns) { downloadsNs = ns; }, function () {});
 })();
 </script>
 </body>

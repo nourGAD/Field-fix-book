@@ -6,6 +6,16 @@ Generates the **Site Basic** and **Site Equipment** NETCONF files for Ericsson B
 
 Everything runs in the browser and nothing is uploaded. You can also save `index.html` and open it offline on site.
 
+## Workflow
+
+1. **Start:** import the ENM files, start from scratch, or load an example.
+2. **Site & node:** node name, ENM services (SNMP, NTP, DNS), security, radios.
+3. **Interfaces:** transport port, OAM, traffic VLANs and IPs, internal F1.
+4. **Review:** the VLAN/IP plan, node settings and RI links on one screen, with open issues and links to fix them.
+5. **Validate & generate:** the files unlock only when every check passes. Download as a zip, or copy them.
+
+Each step shows its own error count in the side rail, and fields with errors are highlighted.
+
 ## What it does
 
 - **Generate:** fill in the form, or start from an example, and download both files as one zip. You can also copy each file.
