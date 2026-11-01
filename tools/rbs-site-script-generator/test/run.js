@@ -42,7 +42,8 @@ ok(C.lintXml(sb, 'Site Basic.xml').errors.some(e => /spaces/.test(e.msg)), 'chec
 
 // file names + RBS Summary
 const fn = C.fileNames(Object.assign(clone(base), { nodeName: 'SITE01-NL', fileTag: '2026_10_28' }));
-ok(Object.values(fn).every(n => /^[A-Za-z0-9_]+\.xml$/.test(n)), 'file names use only letters, digits and _ (' + fn.basic + ')');
+ok(Object.values(fn).every(n => /^[A-Za-z0-9_-]+\.xml$/.test(n)) && fn.basic === '01_SiteBasic_SITE01-NL_2026_10_28.xml', 'file names use only letters, digits, - and _ (' + fn.basic + ')');
+ok(C.fileNames({ nodeName: 'SITE 01/NL', fileTag: '' }).basic === '01_SiteBasic_SITE_01_NL.xml', 'spaces and / in names become _');
 const sum = C.generateSummary(fn, base.upgradePackage);
 const ls = C.lintXml(sum, fn.summary);
 ok(ls.errors.length === 0 && ls.info.paths.siteBasicFilePath === fn.basic && ls.info.paths.siteEquipmentFilePath === fn.equip && ls.info.paths.upgradePackageFilePath === base.upgradePackage, 'summary points to the generated files and the upgrade package');
@@ -52,6 +53,25 @@ ok(threw && !C.summaryStatus(Object.assign(clone(base), { upgradePackage: '' }))
 ok(C.lintXml(sum.replace(/siteEquipmentFilePath="[^"]*"/, 'siteEquipmentFilePath=""')).errors.length > 0, 'checker: empty path in summary');
 ok(C.lintXml(sum.replace(/upgradePackageFilePath="[^"]*"/, 'upgradePackageFilePath="<upgrade-package>"')).errors.length > 0, 'checker: placeholder left in summary');
 ok(C.importFiles([sum], clone(EX['Basic-style'])).cfg.upgradePackage === base.upgradePackage, 'import reads the upgrade package from a summary');
-ok(C.validateConfig(Object.assign(clone(base), { fileTag: '2026-10-28' })).errors.length > 0, 'blocks: "-" in file name tag');
+ok(C.validateConfig(Object.assign(clone(base), { fileTag: '2026/10 28' })).errors.length > 0, 'blocks: space or / in file name tag');
+ok(C.validateConfig(Object.assign(clone(base), { fileTag: 'Project-1_2026' })).errors.length === 0, 'allows - and _ in file name tag');
+
+// project templates: any layout, only site values change
+for (const name of Object.keys(EX)) {
+  const tsb = C.generateSiteBasic(EX[name]), teq = C.generateSiteEquipment(EX[name]);
+  const P = C.templateParams(tsb, teq), v = C.templateValues(P);
+  ok(P.rows.length >= 2 && P.services.length >= 1, name + ' template: interfaces and services found');
+  const same = C.applyTemplate(tsb, teq, P, v);
+  ok(same.sb === tsb && same.eq === teq, name + ' template: unchanged values give identical files');
+  const v2 = clone(v); v2.node.meContext = 'SITE99-NL'; if ('fingerprint' in v2.node) v2.node.fingerprint = 'SITE99-NL';
+  const r0 = v2.rows.findIndex(r => r.gw); v2.rows[r0].ip = v2.rows[r0].ip.replace(/\.(\d+)$/, (m, d) => '.' + (+d + 1));
+  const out = C.applyTemplate(tsb, teq, P, v2);
+  const changed = tsb.split('\r\n').filter((l, i) => l !== out.sb.split('\r\n')[i]).length;
+  ok(C.validateTemplate(P, v2).errors.length === 0 && C.lintXml(out.sb).errors.length === 0 && changed >= 2 && changed <= 4, name + ' template: new site changes only its own lines (' + changed + ')');
+  const v3 = clone(v); const vr = v3.rows.filter(r => r.vlan); v3.rows[v3.rows.indexOf(vr[1])].vlan = vr[0].vlan;
+  ok(C.validateTemplate(P, v3).errors.some(e => /already used/.test(e.msg)), name + ' template: blocks duplicate VLAN');
+  const v4 = clone(v); v4.node.meContext = 'SITE 99';
+  ok(C.validateTemplate(P, v4).errors.length > 0, name + ' template: blocks space in node name');
+}
 
 console.log(fail ? fail + ' test(s) failed' : 'All tests passed'); process.exit(fail ? 1 : 0);

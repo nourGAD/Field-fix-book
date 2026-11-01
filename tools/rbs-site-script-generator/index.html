@@ -189,7 +189,7 @@ pre { margin: 0; background: var(--panel-2); border: 1px solid var(--line); bord
     <div class="chipline">
       <span class="tchip">Node <b id="tc-node">—</b></span>
       <span class="tchip">Style <b id="tc-style">—</b></span>
-      <span class="tchip">Radios <b id="tc-radios">0</b></span>
+      <span class="tchip">Sectors <b id="tc-radios">0</b></span>
       <span id="tc-status" class="pill ok">Ready</span>
     </div>
   </header>
@@ -445,7 +445,7 @@ var Core = (function () {
     id('Node', c.subNetwork, 'SubNetwork');
     id('Node', c.rootMo, 'Root SubNetwork');
     if (c.networkMeId && !/^[A-Za-z0-9_.-]+$/.test(c.networkMeId)) err('Node', 'Network ME ID "' + c.networkMeId + '" has spaces or invalid characters');
-    if (c.fileTag && !/^[A-Za-z0-9_]+$/.test(c.fileTag)) err('Node', 'File name tag "' + c.fileTag + '" may only use letters, digits and _');
+    if (c.fileTag && !/^[A-Za-z0-9_-]+$/.test(c.fileTag)) err('Node', 'File name tag "' + c.fileTag + '" may only use letters, digits, - and _');
     if (!c.user || !c.user.name || !c.user.password) err('Node', 'Maintenance user name and password are required');
     else if (/\s/.test(c.user.name)) err('Node', 'Maintenance user name has spaces');
     id('Transport port', c.tn.port, 'TN port');
@@ -588,7 +588,7 @@ var Core = (function () {
     function err(line, msg) { errors.push({ line: line, msg: msg }); }
     function warn(line, msg) { warnings.push({ line: line, msg: msg }); }
     if (fileName && /\s/.test(fileName)) err(0, 'File name "' + fileName + '" contains spaces — the SFTP download from SMRS can fail. Rename it without spaces.');
-    else if (fileName && /[^A-Za-z0-9_.]/.test(fileName.replace(/\.xml$/i, ''))) warn(0, 'File name "' + fileName + '" has characters other than letters, digits and "_" — keep file names to A-Z, 0-9 and _');
+    else if (fileName && /[^A-Za-z0-9_-]/.test(fileName.replace(/\.xml$/i, ''))) warn(0, 'File name "' + fileName + '" has characters other than letters, digits, - and _');
     function a(mo, n) { var x = mo.attrs[n]; return x ? x[x.length - 1] : null; }
     function byClass(c) { return order.map(function (d) { return mos[d]; }).filter(function (m) { return m.cls === c; }); }
     var ME_PREFIX = 'ManagedElement=1,';
@@ -776,9 +776,181 @@ var Core = (function () {
     return L2;
   }
 
+  /* ---------- project templates: keep a working file's structure, change only site values ---------- */
+  function parseOffsets(text) {
+    var root = { n: '#root', k: [], t: '' }, stack = [root], re = /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!\[CDATA\[([\s\S]*?)\]\]>|<(\/?)([A-Za-z_][\w.:-]*)([^>]*?)(\/?)>|([^<]+)/g, m;
+    while ((m = re.exec(text))) {
+      var top = stack[stack.length - 1];
+      if (m[6] !== undefined) { top.t += m[6]; continue; }
+      if (m[1] !== undefined) { top.t += m[1]; continue; }
+      if (!m[3]) continue;
+      if (m[2]) { if (top.n !== m[3]) throw new Error('closing </' + m[3] + '> does not match <' + top.n + '>'); top.ce = m.index; stack.pop(); continue; }
+      var el = { n: m[3], k: [], t: '', cs: m.index + m[0].length, empty: !!m[5] };
+      top.k.push(el);
+      if (!m[5]) stack.push(el); else el.ce = el.cs;
+    }
+    if (stack.length > 1) throw new Error('Element <' + stack[stack.length - 1].n + '> is never closed');
+    return root;
+  }
+  function tplModel(text, file) {
+    var tree = parseOffsets(text), mos = {}, order = [];
+    function leaf(el) {
+      var raw = text.slice(el.cs, el.ce), lead = raw.length - raw.replace(/^\s+/, '').length, val = raw.trim();
+      return { v: decode(val), s: el.cs + lead, e: el.cs + lead + val.length, f: file, empty: el.empty || !val };
+    }
+    (function walk(node, dn) {
+      node.k.forEach(function (ch) {
+        var idName = ch.n.charAt(0).toLowerCase() + ch.n.slice(1) + 'Id';
+        var idEl = ch.k.filter(function (g) { return g.n === idName; })[0];
+        if (idEl) {
+          var idv = decode(idEl.t.trim()), mydn = (dn ? dn + ',' : '') + ch.n + '=' + idv;
+          var mo = mos[mydn] || (mos[mydn] = { cls: ch.n, id: idv, dn: mydn, a: {} });
+          if (order.indexOf(mydn) < 0) order.push(mydn);
+          ch.k.forEach(function (g) {
+            if (g === idEl) return;
+            var gIdName = g.n.charAt(0).toLowerCase() + g.n.slice(1) + 'Id';
+            if (g.k.some(function (x) { return x.n === gIdName; })) return;
+            (mo.a[g.n] = mo.a[g.n] || []).push(g.k.length ? { node: g } : leaf(g));
+          });
+          walk(ch, mydn);
+        } else if (/^(rpc|edit-config|config|data|action)$/.test(ch.n)) walk(ch, dn);
+      });
+    })(tree, '');
+    return { mos: mos, order: order, all: function (cls) { return order.filter(function (d) { return mos[d].cls === cls; }).map(function (d) { return mos[d]; }); } };
+  }
+  function first(mo, n) { return mo && mo.a[n] ? mo.a[n][mo.a[n].length - 1] : null; }
+
+  // Reads the editable site values out of a project's working Site Basic / Site Equipment.
+  function templateParams(sbText, eqText) {
+    var M = tplModel(sbText, 'sb'), E = eqText ? tplModel(eqText, 'eq') : null, P = { node: {}, rows: [], services: [], equipment: {} };
+    var me = M.mos['ManagedElement=1'];
+    var dp = first(me, 'dnPrefix');
+    if (dp) {
+      var i = dp.v.lastIndexOf('MeContext=');
+      if (i >= 0) P.node.meContext = { v: dp.v.slice(i + 10), s: dp.s + i + 10, e: dp.e, f: 'sb', label: 'MeContext (in dnPrefix)' };
+      P.node.dnPrefix = dp.v;
+    }
+    var fp = first(M.mos['ManagedElement=1,SystemFunctions=1,Lm=1'], 'fingerprint');
+    if (fp) P.node.fingerprint = Object.assign({ label: 'Fingerprint' }, fp);
+    var nme = first(me, 'networkManagedElementId');
+    if (nme) P.node.networkMeId = Object.assign({ label: 'Network ME ID' }, nme);
+    if (E) { var ln = first(E.mos['ManagedElement=1'], 'logicalName'); if (ln) P.node.logicalName = Object.assign({ label: 'Logical name (Site Equipment)' }, ln); }
+    // interfaces
+    M.all('InterfaceIPv4').forEach(function (ifc) {
+      var addrMos = M.order.filter(function (d) { return d.indexOf(ifc.dn + ',AddressIPv4=') === 0; }).map(function (d) { return M.mos[d]; });
+      var router = (/Router=([^,]+)/.exec(ifc.dn) || [])[1], enc = first(ifc, 'encapsulation'), lb = first(ifc, 'loopback');
+      addrMos.forEach(function (am) {
+        var ad = first(am, 'address'); if (!ad) return;
+        var cm = /^([\d.]+)\/(\d+)$/.exec(ad.v); if (!cm) return;
+        var row = { router: router, iface: ifc.id, addrId: am.id, loopback: !!lb, ip: cm[1], prefix: +cm[2], addr: ad, vlanPort: '', ethPort: '', vlan: null, gw: null };
+        var vp = enc && /VlanPort=([^,]+)$/.exec(enc.v);
+        if (vp) {
+          var vmo = M.mos['ManagedElement=1,Transport=1,VlanPort=' + vp[1]];
+          row.vlanPort = vp[1]; row.vlan = first(vmo, 'vlanId'); var ve = first(vmo, 'encapsulation'); row.ethPort = ve ? ve.v : '';
+        } else if (enc) row.ethPort = enc.v;
+        // gateway: next hop of this router inside the interface subnet, else the default route's next hop
+        var nhs = M.order.filter(function (d) { return d.indexOf('ManagedElement=1,Transport=1,Router=' + router + ',RouteTableIPv4Static=') === 0 && M.mos[d].cls === 'NextHop'; })
+          .map(function (d) { return first(M.mos[d], 'address'); }).filter(Boolean);
+        var n = ip2n(cm[1]), p = +cm[2];
+        row.gw = nhs.filter(function (h) { var g = ip2n(h.v); return g != null && p < 32 && net(g, p) === net(n, p); })[0] || (nhs.length === 1 && !lb ? nhs[0] : null);
+        P.rows.push(row);
+      });
+    });
+    // project-wide services
+    function svc(cls, attr, label) { M.all(cls).forEach(function (mo) { (mo.a[attr] || []).forEach(function (x) { if (x.v !== undefined) P.services.push(Object.assign({ label: label + (M.all(cls).length > 1 ? ' ' + mo.id : ''), kind: attr === 'uri' ? 'uri' : 'ip' }, x)); }); }); }
+    svc('NtpServer', 'serverAddress', 'NTP server');
+    svc('SnmpTargetV2C', 'address', 'SNMP target');
+    svc('DnsClient', 'serverAddress', 'DNS server');
+    svc('NtpFrequencySync', 'syncServerNtpIpAddress', 'NTP sync server');
+    svc('PtpBcOcPort', 'associatedGrandmaster', 'PTP grandmaster');
+    svc('EnrollmentServer', 'uri', 'Enrollment server URI');
+    if (E) P.equipment = { sectors: E.all('SectorEquipmentFunction').map(function (x) { return x.id; }), frus: E.all('FieldReplaceableUnit').map(function (x) { return x.id; }), riLinks: E.all('RiLink').length };
+    P.features = M.all('FeatureState').map(function (x) { return x.id; });
+    return P;
+  }
+  function templateValues(P) {
+    var v = { node: {}, rows: P.rows.map(function (r) { return { vlan: r.vlan ? r.vlan.v : '', ip: r.ip, prefix: r.prefix, gw: r.gw ? r.gw.v : '' }; }), services: P.services.map(function (x) { return x.v; }) };
+    Object.keys(P.node).forEach(function (k) { if (P.node[k] && P.node[k].v !== undefined) v.node[k] = P.node[k].v; });
+    return v;
+  }
+  var NAME_RE = /^[A-Za-z0-9_-]+$/;
+  function validateTemplate(P, v) {
+    var errors = [], warnings = [];
+    function err(w, m) { errors.push({ where: w, msg: m }); }
+    function warn(w, m) { warnings.push({ where: w, msg: m }); }
+    Object.keys(P.node).forEach(function (k) {
+      if (!P.node[k] || P.node[k].v === undefined) return;
+      var x = String(v.node[k] || '').trim();
+      if (!x) err('Node', P.node[k].label + ' is empty');
+      else if (!NAME_RE.test(x)) err('Node', P.node[k].label + ' "' + x + '" may only use letters, digits, - and _');
+    });
+    var vl = {}, ips = {}, nets = [];
+    P.rows.forEach(function (r, i) {
+      var x = v.rows[i], w = 'Interface ' + r.router + (r.iface !== '1' ? '/' + r.iface : '');
+      var p = Number(x.prefix), okP = /^\d+$/.test(String(x.prefix)) && p >= 8 && p <= 32;
+      if (!okP) err(w, 'Prefix /' + x.prefix + ' must be between /8 and /32');
+      var n = ip2n(x.ip);
+      if (n == null) err(w, 'IP "' + (x.ip || '') + '" is not a valid IPv4 address');
+      if (r.vlan) {
+        var vv = Number(x.vlan);
+        if (!/^\d+$/.test(String(x.vlan)) || vv < 1 || vv > 4094) err(w, 'VLAN "' + x.vlan + '" must be a number 1–4094');
+        else {
+          var key = r.ethPort + '#' + vv;
+          if (vl[key] && vl[key].vp !== r.vlanPort) err(w, 'VLAN ' + vv + ' is already used by ' + vl[key].w + ' on the same port — the node will reject it at commit (sa_ais_err_bad_operation)');
+          else if (vl[key] && vl[key].vp === r.vlanPort && vl[key].val !== vv) err(w, 'VlanPort ' + r.vlanPort + ' is shared with ' + vl[key].w + ' — give both the same VLAN');
+          vl[key] = vl[key] || { w: w, vp: r.vlanPort, val: vv };
+        }
+      }
+      if (n != null && okP) {
+        if (p < 31) { var nw = net(n, p), bc = (nw | (~mask(p) >>> 0)) >>> 0; if (n === nw || n === bc) err(w, x.ip + '/' + p + ' is the network or broadcast address'); }
+        if (ips[x.ip]) err(w, 'IP ' + x.ip + ' is already used by ' + ips[x.ip]); else ips[x.ip] = w;
+        nets.forEach(function (o) { var mp = Math.min(o.p, p); if (p < 32 && o.p < 32 && net(o.n, mp) === net(n, mp)) warn(w, 'Subnet overlaps ' + o.w + ' — check the IP plan'); });
+        nets.push({ n: n, p: p, w: w });
+        if (r.gw) {
+          var g = ip2n(x.gw);
+          if (g == null) err(w, 'Gateway "' + (x.gw || '') + '" is not a valid IPv4 address');
+          else if (p < 32 && net(g, p) !== net(n, p)) err(w, 'Gateway ' + x.gw + ' is outside ' + n2ip(net(n, p)) + '/' + p + ' — the default route will not work');
+          else if (g === n) err(w, 'Gateway equals the interface IP');
+        }
+      }
+    });
+    P.services.forEach(function (sv, i) {
+      var x = String(v.services[i] || '').trim();
+      if (sv.kind === 'uri') { if (!/^https?:\/\/\S+$/.test(x)) err('Services', sv.label + ' must start with http:// or https:// and have no spaces'); }
+      else if (ip2n(x) == null) err('Services', sv.label + ' "' + x + '" is not a valid IPv4 address');
+    });
+    return { errors: errors, warnings: warnings };
+  }
+  function applyTemplate(sbText, eqText, P, v) {
+    var edits = { sb: [], eq: [] };
+    function put(span, val) { if (span && span.s !== undefined && String(val) !== span.v) edits[span.f].push({ s: span.s, e: span.e, t: escAttr(String(val).trim()) }); }
+    Object.keys(P.node).forEach(function (k) { if (P.node[k] && P.node[k].s !== undefined) put(P.node[k], v.node[k]); });
+    var seenVlan = {};
+    P.rows.forEach(function (r, i) {
+      var x = v.rows[i];
+      put(r.addr, String(x.ip).trim() + '/' + String(x.prefix).trim());
+      if (r.vlan && !seenVlan[r.vlan.s]) { put(r.vlan, x.vlan); seenVlan[r.vlan.s] = 1; }
+      if (r.gw) put(r.gw, x.gw);
+    });
+    P.services.forEach(function (sv, i) { put(sv, v.services[i]); });
+    function run(text, list) {
+      var seen = {}; list = list.filter(function (x) { var k = x.s + ':' + x.e; if (seen[k]) return false; seen[k] = 1; return true; }).sort(function (a, b) { return b.s - a.s; });
+      list.forEach(function (x) { text = text.slice(0, x.s) + x.t + text.slice(x.e); });
+      return text;
+    }
+    return { sb: run(sbText, edits.sb), eq: eqText ? run(eqText, edits.eq) : '' };
+  }
+  function moshellChecksTemplate(P, v) {
+    var L = ['lt all', 'alt', 'st ethernetport|vlanport|interfaceipv4', 'hget vlanport vlanid|encapsulation',
+      'hget interfaceipv4 encapsulation|loopback|operationalstate', 'hget addressipv4 address', 'hget nexthop address'];
+    P.rows.forEach(function (r, i) { if (r.gw && v.rows[i].gw) L.push('mcc router=' + r.router + ' ping --count 3 ' + v.rows[i].gw); });
+    L.push('st ntpserver', 'st rilink', 'st sectorequipmentfunction', 'st fieldreplaceableunit');
+    return L;
+  }
+
   /* ---------- file names + RBS Summary ---------- */
-  // File names use only letters, digits and "_" (no spaces, "-", "/" or other symbols).
-  function safeName(s) { return String(s == null ? '' : s).trim().replace(/[^A-Za-z0-9_]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, ''); }
+  // File names use only letters, digits, "-" and "_" (no spaces, "/" or other symbols).
+  function safeName(s) { return String(s == null ? '' : s).trim().replace(/[^A-Za-z0-9_-]+/g, '_').replace(/_+/g, '_').replace(/^[_-]+|[_-]+$/g, ''); }
   function fileNames(c) {
     var node = safeName(c.nodeName), tag = safeName(c.fileTag);
     var suffix = node + (tag ? '_' + tag : '');
@@ -809,7 +981,7 @@ var Core = (function () {
   function lintSummary(text, fileName) {
     var errors = [], warnings = [];
     function err(msg) { errors.push({ line: 0, msg: msg }); }
-    if (fileName && /[^A-Za-z0-9_.]/.test(fileName.replace(/\.xml$/i, ''))) warnings.push({ line: 0, msg: 'File name "' + fileName + '" has characters other than letters, digits and "_"' });
+    if (fileName && /[^A-Za-z0-9_-]/.test(fileName.replace(/\.xml$/i, ''))) warnings.push({ line: 0, msg: 'File name "' + fileName + '" has characters other than letters, digits, - and _' });
     try { parseXml(text); } catch (e) { err('XML is broken: ' + e.message); }
     if (!/<summary:AutoIntegrationRbsSummaryFile\b[^>]*xmlns:summary="http:\/\/www\.ericsson\.se\/RbsSummaryFileSchema"/.test(text)) err('Root element or summary namespace is not the expected one');
     if (!/<Format\s+revision="F"\s*\/>/.test(text)) err('Format revision="F" element is missing');
@@ -820,13 +992,13 @@ var Core = (function () {
       else if (!v.trim()) err(a + ' is empty');
       else if (/[<>]/.test(v)) err(a + ' still has a placeholder value');
       else if (/\s/.test(v)) err(a + ' "' + v + '" contains spaces');
-      else if (a !== 'upgradePackageFilePath' && /[^A-Za-z0-9_.\/]/.test(v)) warnings.push({ line: 0, msg: a + ' "' + v + '" has characters other than letters, digits and "_"' });
+      else if (a !== 'upgradePackageFilePath' && /[^A-Za-z0-9_.\/-]/.test(v)) warnings.push({ line: 0, msg: a + ' "' + v + '" has characters other than letters, digits, - and _' });
     });
     return { errors: errors, warnings: warnings, info: info };
   }
 
   return { generateSiteBasic: generateSiteBasic, generateSiteEquipment: generateSiteEquipment, validateConfig: validateConfig,
-    lintXml: lintXml, lintSummary: lintSummary, generateSummary: generateSummary, summaryStatus: summaryStatus, safeName: safeName, importFiles: importFiles, makeZip: makeZip, moshellChecks: moshellChecks, fileNames: fileNames, BB_RI_PORTS: BB_RI_PORTS, ip2n: ip2n };
+    lintXml: lintXml, templateParams: templateParams, templateValues: templateValues, validateTemplate: validateTemplate, applyTemplate: applyTemplate, moshellChecksTemplate: moshellChecksTemplate, lintSummary: lintSummary, generateSummary: generateSummary, summaryStatus: summaryStatus, safeName: safeName, importFiles: importFiles, makeZip: makeZip, moshellChecks: moshellChecks, fileNames: fileNames, BB_RI_PORTS: BB_RI_PORTS, ip2n: ip2n };
 })();
 if (typeof module !== 'undefined') module.exports = Core;
 
@@ -899,7 +1071,23 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
     { id: 'review', title: 'Review', sub: 'Check the plan before generating' },
     { id: 'generate', title: 'Validate & generate', sub: 'Scripts + RBS Summary' }
   ];
-  var S = { cfg: null, label: '', step: 'start', view: 'flow', preview: 'sb', last: { ok: false }, visited: {} };
+  var S = { cfg: null, label: '', step: 'start', view: 'flow', preview: 'sb', last: { ok: false }, visited: {}, P: null, Pkey: '', lastImport: null, importNote: '' };
+  var PKEY = 'rbs-sitegen-projects-v1';
+  function projects() { try { return JSON.parse(localStorage.getItem(PKEY) || '{}') || {}; } catch (e) { return {}; } }
+  function saveProject(name, tpl) { var all = projects(); all[name] = { sb: tpl.sb, eq: tpl.eq, sbName: tpl.sbName, eqName: tpl.eqName, saved: Date.now() }; try { localStorage.setItem(PKEY, JSON.stringify(all)); return true; } catch (e) { return false; } }
+  function removeProject(name) { var all = projects(); delete all[name]; try { localStorage.setItem(PKEY, JSON.stringify(all)); } catch (e) {} }
+  function isTpl() { return S.cfg && S.cfg.mode === 'template'; }
+  function params() {
+    var key = S.cfg.project + '#' + S.cfg.tpl.sb.length + '#' + (S.cfg.tpl.eq || '').length;
+    if (S.Pkey !== key) { S.P = Core.templateParams(S.cfg.tpl.sb, S.cfg.tpl.eq); S.Pkey = key; }
+    return S.P;
+  }
+  function tplNodeName(v) { return v.node.meContext || v.node.networkMeId || v.node.fingerprint || v.node.logicalName || ''; }
+  function newSiteFromTemplate(name, tpl, label) {
+    var P = Core.templateParams(tpl.sb, tpl.eq);
+    S.Pkey = '';
+    load({ mode: 'template', project: name, tpl: tpl, values: Core.templateValues(P), fileTag: '', upgradePackage: '' }, label || ('new site from project ' + name));
+  }
   var downloadsNs = null;
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
@@ -927,7 +1115,7 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
 
   /* ---------- validation, grouped by step ---------- */
   function stepOf(where) {
-    if (/^(Transport port|OAM|Traffic|Internal F1)/.test(where)) return 'net';
+    if (/^(Transport port|OAM|Traffic|Internal F1|Interface)/.test(where)) return 'net';
     if (where === 'Self-check') return 'generate';
     return 'site';
   }
@@ -936,7 +1124,27 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
     (function walk(o) { Object.keys(o).forEach(function (k) { if (typeof o[k] === 'string') o[k] = o[k].trim(); else if (o[k] && typeof o[k] === 'object') walk(o[k]); }); })(c);
     return c;
   }
+  function evaluateTemplate() {
+    var c = clone(S.cfg);
+    (function walk(o) { Object.keys(o).forEach(function (k) { if (typeof o[k] === 'string') o[k] = o[k].trim(); else if (o[k] && typeof o[k] === 'object') walk(o[k]); }); })(c.values);
+    c.fileTag = String(c.fileTag || '').trim(); c.upgradePackage = String(c.upgradePackage || '').trim();
+    var P = params(), v = c.values, val = Core.validateTemplate(P, v), out = { sb: '', eq: '' }, self = [];
+    if (!val.errors.length) {
+      try {
+        out = Core.applyTemplate(c.tpl.sb, c.tpl.eq, P, v);
+        Core.lintXml(out.sb).errors.concat(out.eq ? Core.lintXml(out.eq).errors : []).forEach(function (x) { self.push({ where: 'Self-check', msg: x.msg }); });
+      } catch (ex) { self.push({ where: 'Self-check', msg: 'Generator failed: ' + ex.message }); }
+    }
+    var errors = val.errors.concat(self), fc = { nodeName: tplNodeName(v), fileTag: c.fileTag, upgradePackage: c.upgradePackage };
+    if (fc.fileTag && !/^[A-Za-z0-9_-]+$/.test(fc.fileTag)) errors.push({ where: 'Node', msg: 'File name tag "' + fc.fileTag + '" may only use letters, digits, - and _' });
+    var names = Core.fileNames(fc), sum = Core.summaryStatus(fc), summary = '';
+    if (!c.tpl.eq) sum = { ok: false, missing: ['The project template has no Site Equipment file, so the summary cannot point to one.'] };
+    if (!errors.length && sum.ok) { try { summary = Core.generateSummary(names, fc.upgradePackage); } catch (ex) { sum = { ok: false, missing: [ex.message] }; } }
+    S.last = { ok: !errors.length, sb: out.sb, eq: out.eq, c: c, P: P, v: v, errors: errors, warnings: val.warnings, names: names, sum: sum, summary: summary, mos: Core.moshellChecksTemplate(P, v) };
+    return S.last;
+  }
   function evaluate() {
+    if (isTpl()) return evaluateTemplate();
     var c = trimmed(), v = Core.validateConfig(c), sb = '', eq = '', self = [];
     if (!v.errors.length) {
       try {
@@ -947,7 +1155,7 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
     }
     var errors = v.errors.concat(self), names = Core.fileNames(c), sum = Core.summaryStatus(c), summary = '';
     if (!errors.length && sum.ok) { try { summary = Core.generateSummary(names, c.upgradePackage); } catch (ex) { sum = { ok: false, missing: [ex.message] }; } }
-    S.last = { ok: !errors.length, sb: sb, eq: eq, c: c, errors: errors, warnings: v.warnings, names: names, sum: sum, summary: summary };
+    S.last = { ok: !errors.length, sb: sb, eq: eq, c: c, errors: errors, warnings: v.warnings, names: names, sum: sum, summary: summary, mos: Core.moshellChecks(c) };
     return S.last;
   }
   function countFor(step, list) { return list.filter(function (x) { return stepOf(x.where) === step; }).length; }
@@ -1001,19 +1209,101 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
 
   /* ---------- step views ---------- */
   function viewStart() {
-    var cur = S.cfg && S.label ? '<div class="panel"><h2>Current draft</h2><p class="hint" style="margin:0 0 10px">' + escH(S.label) + (S.cfg.nodeName ? ' · node <b class="mono">' + escH(S.cfg.nodeName) + '</b>' : '') + '</p><button class="btn primary" data-goto="site">Continue with this draft →</button></div>' : '';
+    var cur = S.cfg && S.label ? '<div class="panel"><h2>Current draft</h2><p class="hint" style="margin:0 0 10px">' + escH(S.label) + ((isTpl() ? tplNodeName(S.cfg.values) : S.cfg.nodeName) ? ' · node <b class="mono">' + escH(isTpl() ? tplNodeName(S.cfg.values) : S.cfg.nodeName) + '</b>' : '') + '</p><button class="btn primary" data-goto="site">Continue with this draft →</button></div>' : '';
     return head(1, 'Where do you want to start?', 'Import the files ENM generated for the site to pre-fill everything, or start with an empty form. You can come back here at any time.') +
       '<div class="panelgrid">' + cur +
       '<div class="cols-3">' +
         '<label class="choice recommended" id="imp-drop" for="imp-file"><div class="ic">' + ICON.imp + '</div><div class="tag">Recommended</div><b>Import ENM files</b><span>Choose or drop the Site Basic, Site Equipment and RBS Summary XML. Every value is read in and checked, so wrong VLANs or IPs show up straight away.</span><input type="file" id="imp-file" accept=".xml,.txt" multiple></label>' +
-        '<button class="choice" type="button" id="start-blank"><div class="ic">' + ICON.blank + '</div><b>Start from scratch</b><span>Empty form with the standard router names (OAM, Traffic_LTE, NR_CP, NR_UP) and internal F1 ready. Fill in from the TRM IP plan.</span></button>' +
+        '<button class="choice" type="button" id="start-blank"><div class="ic">' + ICON.blank + '</div><b>Start from scratch</b><span>Empty form with the standard layout (OAM, Traffic_LTE, NR_CP, NR_UP, internal F1). For a project with a different layout, use a project template below.</span></button>' +
         '<div class="choice" style="cursor:default"><div class="ic">' + ICON.ex + '</div><b>Load an example</b><span>A complete working site to see how everything fits.</span><div class="examples">' +
           EXK.map(function (k, i) { return '<button class="btn small" type="button" data-example="' + i + '">' + escH(k) + '</button>'; }).join('') + '</div></div>' +
       '</div>' +
+      viewProjects() +
       '<div class="panel"><h2>How it works</h2><ol class="rules" style="padding-left:20px"><li>Enter the node, ENM services and radios.</li><li>Enter the transport port, VLANs and IPs from the TRM plan.</li><li>Review the VLAN and IP plan side by side.</li><li>Generate: the files unlock only when every check passes, and the output is checked again before download.</li></ol></div>' +
       '</div>';
   }
+  function viewProjects() {
+    var all = projects(), names = Object.keys(all).sort();
+    return '<div class="panel"><h2>Project templates <span class="tag" style="margin-left:4px">any project</span></h2>' +
+      '<p class="hint">Each operator project has its own script layout: router names, sync, features, radio setup. Load one working site\'s Site Basic + Site Equipment as the project template. For every new site the tool changes only the site values (names, VLANs, IPs, gateways, servers) and keeps the rest of the template exactly as it is.</p>' +
+      '<div class="fields" style="grid-template-columns:minmax(0,1fr) auto;align-items:end">' +
+        '<label class="f" for="proj-name">Project name<input id="proj-name" placeholder="e.g. Operator - Country - Project" autocomplete="off"></label>' +
+        '<label class="btn primary" for="proj-file" style="height:36px">Choose working Site Basic + Site Equipment…</label><input type="file" id="proj-file" accept=".xml,.txt" multiple>' +
+      '</div><div id="proj-msg" class="hint" style="margin-top:8px"></div>' +
+      (names.length ? '<table class="rtable" style="margin-top:10px"><thead><tr><th>Saved project</th><th>Template files</th><th></th></tr></thead><tbody>' + names.map(function (n) {
+        var t = all[n];
+        return '<tr><td>' + escH(n) + '</td><td>' + escH(t.sbName || 'Site Basic') + '<br>' + escH(t.eqName || 'Site Equipment') + '</td><td style="white-space:nowrap;text-align:right">' +
+          '<button class="btn small primary" data-proj-use="' + escH(n) + '">New site</button> <button class="btn small" data-proj-del="' + escH(n) + '">Remove</button></td></tr>';
+      }).join('') + '</tbody></table>' : '') + '</div>';
+  }
+  function viewSiteTpl() {
+    var P = params(), v = S.cfg.values, nodeKeys = Object.keys(P.node).filter(function (k) { return P.node[k] && P.node[k].v !== undefined; });
+    return head(2, 'Site & node information', 'Project <b>' + escH(S.cfg.project) + '</b>. Enter the new site\'s names. Everything else comes from the project template.') +
+      '<div class="panelgrid">' + stepIssuesPanel('site') +
+      '<div class="panel"><h2>Node names</h2><p class="hint">Exact names from ENM. Only letters, digits, - and _.</p><div class="fields">' +
+        nodeKeys.map(function (k) { return field('values.node.' + k, escH(P.node[k].label)); }).join('') +
+        field('fileTag', 'File name tag (optional)', { ph: 'e.g. Operator_Country_2026_11_01' }) +
+        field('upgradePackage', 'Upgrade package (for the RBS Summary)', { wide: true, ph: 'exact name on SMRS' }) +
+      '</div></div>' +
+      '<div class="panel"><h2>Project services</h2><p class="hint">Read from the template. These are usually the same for every site in the project, so only change them if the plan says so.</p><div class="fields">' +
+        (P.services.length ? P.services.map(function (sv, i) { return field('values.services.' + i, escH(sv.label), sv.kind === 'uri' ? { wide: true } : {}); }).join('') : '<p class="hint" style="margin:0">No NTP, SNMP, DNS or sync servers in this template.</p>') +
+      '</div></div>' +
+      '<div class="panel"><h2>Equipment</h2><p class="hint" style="margin:0">Site Equipment is taken from the template as it is: ' + P.equipment.sectors.length + ' sector function(s), ' + P.equipment.frus.length + ' unit(s), ' + P.equipment.riLinks + ' RI link(s)' +
+        (P.node.logicalName ? ', with the logical name updated' : '') + '. If this site has different radios, load a template from a site with the same radio setup.</p></div>' +
+      '</div>' + nav('start', 'net');
+  }
+  function viewNetTpl() {
+    var P = params();
+    var rows = P.rows.map(function (r, i) {
+      var p = 'values.rows.' + i + '.';
+      return '<tr><td class="mono">' + escH(r.router) + '</td><td class="mono">' + escH(r.iface) + '</td><td class="mono">' + (r.loopback ? 'loopback' : escH(r.vlanPort || '—')) + '</td>' +
+        (r.vlan ? cell(p + 'vlan', 'n-col') : '<td class="kv">—</td>') + cell(p + 'ip', 'ip-col') + cell(p + 'prefix', 'p-col') + (r.gw ? cell(p + 'gw', 'ip-col') : '<td class="kv">—</td>') + '</tr>';
+    }).join('');
+    return head(3, 'Interfaces, VLANs and IPs', 'One row per IP interface found in the project template. Router, interface and VlanPort names stay as they are; enter this site\'s VLANs, IPs and gateways from the TRM plan.') +
+      '<div class="panelgrid">' + stepIssuesPanel('net') +
+      '<div class="panel"><h2>Interfaces</h2><div class="tbl-wrap"><table><thead><tr><th>Router</th><th>Interface</th><th>VlanPort</th><th>VLAN</th><th>IP</th><th>Prefix</th><th>Gateway</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="hint" style="margin:8px 0 0">Every VlanPort on the same Ethernet port needs its own VLAN, and every gateway must be inside its subnet.</p></div>' +
+      '</div>' + nav('site', 'review');
+  }
+  function viewReviewTpl() {
+    var L = S.last, P = L.P, v = L.v;
+    var allIssues = L.errors.concat(L.warnings.map(function (x) { return { where: x.where, msg: x.msg, kind: 'w' }; }));
+    var changed = 0, base = Core.templateValues(P);
+    v.rows.forEach(function (r, i) { ['vlan', 'ip', 'prefix', 'gw'].forEach(function (k) { if (String(r[k]) !== String(base.rows[i][k])) changed++; }); });
+    Object.keys(v.node).forEach(function (k) { if (v.node[k] !== base.node[k]) changed++; });
+    v.services.forEach(function (x, i) { if (x !== base.services[i]) changed++; });
+    return head(4, 'Review the configuration', 'Compare with the TRM plan. Values shown in bold changed from the template.') +
+      '<div class="panelgrid">' +
+      '<div class="kpis">' +
+        '<div class="kpi ' + (L.errors.length ? 'e' : 'k') + '"><span>Errors</span><b>' + L.errors.length + '</b></div>' +
+        '<div class="kpi ' + (L.warnings.length ? 'w' : 'k') + '"><span>Warnings</span><b>' + L.warnings.length + '</b></div>' +
+        '<div class="kpi"><span>Values changed</span><b>' + changed + '</b></div>' +
+        '<div class="kpi"><span>Interfaces</span><b>' + P.rows.length + '</b></div>' +
+      '</div>' +
+      (changed === 0 ? '<div class="panel"><ul class="issues"><li class="w"><span class="where">Nothing changed yet:</span>the files would be identical to the template site. Enter the new site\'s names and IPs.</li></ul></div>' : '') +
+      (allIssues.length ? '<div class="panel"><h2>Open issues</h2>' + issueList(allIssues, true) + '</div>' : '') +
+      '<div class="panel"><h2>VLAN and IP plan</h2><div class="tbl-wrap"><table class="rtable"><thead><tr><th>Router</th><th>Interface</th><th>VlanPort</th><th>VLAN</th><th>IP / prefix</th><th>Gateway</th></tr></thead><tbody>' +
+        P.rows.map(function (r, i) {
+          var x = v.rows[i], b = base.rows[i];
+          function mark(val, old) { return String(val) !== String(old) ? '<b>' + escH(val) + '</b>' : escH(val); }
+          return '<tr><td>' + escH(r.router) + '</td><td>' + escH(r.iface) + '</td><td>' + (r.loopback ? 'loopback' : escH(r.vlanPort || '—')) + '</td><td>' + (r.vlan ? mark(x.vlan, b.vlan) : '—') + '</td><td>' + mark(x.ip + '/' + x.prefix, b.ip + '/' + b.prefix) + '</td><td>' + (r.gw ? mark(x.gw, b.gw) : '—') + '</td></tr>';
+        }).join('') + '</tbody></table></div></div>' +
+      '<div class="cols-2">' +
+        '<div class="panel"><h2>Node and files</h2><table class="rtable"><tbody>' +
+          '<tr><td>Project</td><td>' + escH(L.c.project) + '</td></tr>' +
+          Object.keys(v.node).map(function (k) { return '<tr><td>' + escH(P.node[k].label) + '</td><td>' + (v.node[k] !== base.node[k] ? '<b>' + escH(v.node[k]) + '</b>' : escH(v.node[k])) + '</td></tr>'; }).join('') +
+          '<tr><td>Upgrade package</td><td>' + (L.c.upgradePackage ? escH(L.c.upgradePackage) : '<span style="color:var(--warn)">missing — needed for the RBS Summary</span>') + '</td></tr>' +
+          '<tr><td>Files</td><td>' + escH(L.names.basic) + '<br>' + escH(L.names.equip) + '<br>' + escH(L.names.summary) + '</td></tr>' +
+        '</tbody></table></div>' +
+        '<div class="panel"><h2>Services and equipment</h2><table class="rtable"><tbody>' +
+          P.services.map(function (sv, i) { return '<tr><td>' + escH(sv.label) + '</td><td>' + (v.services[i] !== base.services[i] ? '<b>' + escH(v.services[i]) + '</b>' : escH(v.services[i])) + '</td></tr>'; }).join('') +
+          '<tr><td>Sectors</td><td>' + escH(P.equipment.sectors.join(', ') || '—') + '</td></tr>' +
+          (P.features.length ? '<tr><td>Features</td><td>' + P.features.length + ' kept from the template</td></tr>' : '') +
+        '</tbody></table></div>' +
+      '</div></div>' + nav('net', 'generate', 'Validate & generate');
+  }
   function viewSite() {
+    if (isTpl()) return viewSiteTpl();
     var full = S.cfg.style === 'full', riOpts = Core.BB_RI_PORTS.map(function (p) { return [p, p]; });
     var radios = S.cfg.radios.map(function (r, i) {
       var p = 'radios.' + i + '.';
@@ -1026,7 +1316,7 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
       '<div class="panel"><h2>Node identity</h2><p class="hint">Use the exact name from ENM. No spaces anywhere.</p><div class="fields">' +
         field('style', 'Script style', { type: 'select', options: [['full', 'Full ENM style'], ['basic', 'Basic interim style']] }) +
         field('nodeName', 'Node name (MeContext)', { ph: 'e.g. SITE-NL' }) + field('networkMeId', 'Network ME ID', { ph: 'same as node name if unsure' }) +
-        field('subNetwork', 'SubNetwork') + field('rootMo', 'Root SubNetwork') + field('fileTag', 'File name tag (optional, letters/digits/_)', { ph: 'e.g. 2026_10_29' }) +
+        field('subNetwork', 'SubNetwork') + field('rootMo', 'Root SubNetwork') + field('fileTag', 'File name tag (optional, letters/digits/-/_)', { ph: 'e.g. 2026_10_29' }) +
         field('upgradePackage', 'Upgrade package (for the RBS Summary)', { wide: true, ph: 'exact name on SMRS, e.g. Baseband_Radio_Node-CXP…' }) +
         field('user.name', 'Maintenance user') + field('user.password', 'Maintenance password') +
       '</div></div>' +
@@ -1049,6 +1339,7 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
       '</div>' + nav('start', 'net');
   }
   function viewNet() {
+    if (isTpl()) return viewNetTpl();
     var traffic = S.cfg.traffic.map(function (t, i) {
       var p = 'traffic.' + i + '.';
       return '<tr>' + cell(p + 'router') + cell(p + 'vlanPort') + cell(p + 'vlan', 'n-col') + cell(p + 'ip', 'ip-col') + cell(p + 'prefix', 'p-col') + cell(p + 'gw', 'ip-col') +
@@ -1077,12 +1368,14 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
       '</div>' + nav('site', 'review');
   }
   function viewReview() {
+    if (isTpl()) return viewReviewTpl();
     var c = S.last.c, L = S.last;
     function row(label, r) { return '<tr><td>' + escH(label) + '</td><td>' + escH(r.router) + '</td><td>' + escH(r.vlanPort) + '</td><td>' + escH(r.vlan) + '</td><td>' + escH(r.ip) + '/' + escH(r.prefix) + '</td><td>' + escH(r.gw) + '</td></tr>'; }
     var rr = c.radios.filter(function (r) { return r.type === 'RRU'; }).length, ar = c.radios.length - rr;
     var allIssues = L.errors.concat(L.warnings.map(function (x) { return { where: x.where, msg: x.msg, kind: 'w' }; }));
     return head(4, 'Review the configuration', 'Compare this with the TRM plan and the site\'s radio layout before generating.') +
       '<div class="panelgrid">' +
+      (S.importNote ? '<div class="panel" style="border-color:var(--warn)"><h2>This file uses a different layout</h2><p class="hint">' + escH(S.importNote) + '</p><button class="btn primary" id="use-as-tpl">Use the imported files as a project template</button></div>' : '') +
       '<div class="kpis">' +
         '<div class="kpi ' + (L.errors.length ? 'e' : 'k') + '"><span>Errors</span><b>' + L.errors.length + '</b></div>' +
         '<div class="kpi ' + (L.warnings.length ? 'w' : 'k') + '"><span>Warnings</span><b>' + L.warnings.length + '</b></div>' +
@@ -1126,8 +1419,8 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
           '<button class="btn" id="cp-sb"' + (L.ok ? '' : ' disabled') + '>Copy Site Basic</button><button class="btn" id="cp-eq"' + (L.ok ? '' : ' disabled') + '>Copy Site Equipment</button>' +
           '<button class="btn" id="cp-sum"' + (sumOk ? '' : ' disabled') + '>Copy Summary</button></div>' +
           '<div class="toast" id="toast" role="status" aria-live="polite"></div>' +
-          '<p class="hint" style="margin:4px 0 0">File names use only letters, digits and _. The RBS Summary points to these exact names, so put all three on SMRS together and select the summary file in AutoIntegration.</p></div>' +
-        '<div class="panel"><h2>MoShell checks after integration</h2><pre id="moshell">' + escH(Core.moshellChecks(L.c).join('\n')) + '</pre><div class="actions" style="margin-top:8px"><button class="btn small" id="cp-mos">Copy commands</button></div></div>' +
+          '<p class="hint" style="margin:4px 0 0">File names use only letters, digits, - and _. The RBS Summary points to these exact names, so put all three on SMRS together and select the summary file in AutoIntegration.</p></div>' +
+        '<div class="panel"><h2>MoShell checks after integration</h2><pre id="moshell">' + escH(L.mos.join('\n')) + '</pre><div class="actions" style="margin-top:8px"><button class="btn small" id="cp-mos">Copy commands</button></div></div>' +
       '</div>' +
       '<div class="panel"><h2>Preview</h2><div class="ptabs"><button class="btn small" id="pv-sb" aria-pressed="' + (S.preview === 'sb') + '">Site Basic</button><button class="btn small" id="pv-eq" aria-pressed="' + (S.preview === 'eq') + '">Site Equipment</button><button class="btn small" id="pv-sum" aria-pressed="' + (S.preview === 'sum') + '">RBS Summary</button></div>' +
         '<pre id="preview">' + escH(!L.ok ? 'Preview appears when there are no errors.' : S.preview === 'sum' ? (L.summary ? L.summary.replace(/\r\n/g, '\n') : 'The summary is created once the upgrade package is entered.\n\n' + L.sum.missing.join('\n')) : (S.preview === 'sb' ? L.sb : L.eq).replace(/\r\n/g, '\n')) + '</pre></div>' +
@@ -1164,9 +1457,15 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
     var pill = $('tc-status');
     pill.className = 'pill ' + (L.ok ? (L.warnings.length ? 'warn' : 'ok') : 'crit');
     pill.textContent = L.ok ? (L.warnings.length ? L.warnings.length + ' warning' + (L.warnings.length > 1 ? 's' : '') : 'Ready') : L.errors.length + ' error' + (L.errors.length > 1 ? 's' : '');
-    $('tc-node').textContent = S.cfg.nodeName || '—';
-    $('tc-style').textContent = S.cfg.style === 'full' ? 'Full ENM' : 'Basic';
-    $('tc-radios').textContent = S.cfg.radios.length;
+    if (isTpl()) {
+      $('tc-node').textContent = tplNodeName(S.cfg.values) || '—';
+      $('tc-style').textContent = 'Template · ' + S.cfg.project;
+      $('tc-radios').textContent = S.P ? S.P.equipment.sectors.length : '—';
+    } else {
+      $('tc-node').textContent = S.cfg.nodeName || '—';
+      $('tc-style').textContent = S.cfg.style === 'full' ? 'Full ENM' : 'Basic';
+      $('tc-radios').textContent = S.cfg.radios.length;
+    }
   }
   function render(keepFocus) {
     evaluate();
@@ -1201,7 +1500,7 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify({ cfg: S.cfg, label: S.label, step: S.step, visited: S.visited })); } catch (e) {} }
   function go(step) { S.view = 'flow'; S.step = step; S.visited[step] = true; try { history.replaceState(null, '', '#' + step); } catch (e) {} render(); }
-  function load(c, label, step) { S.cfg = clone(c); S.label = label; S.visited = {}; go(step || 'site'); }
+  function load(c, label, step) { S.cfg = clone(c); S.label = label; S.visited = {}; if (label.indexOf('imported') !== 0) S.importNote = ''; go(step || 'site'); }
 
   /* ---------- events ---------- */
   function nextFree(list, prefix) { var n = 1; while (list.indexOf(prefix + n) >= 0) n++; return prefix + n; }
@@ -1212,6 +1511,13 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
     if (b.id === 'nav-check') { S.view = 'check'; try { history.replaceState(null, '', '#check'); } catch (x) {} render(); return; }
     if (b.dataset.example !== undefined) { var k = EXK[+b.dataset.example]; load(EXAMPLES[k], k + ' example'); return; }
     if (b.id === 'start-blank') { load(blankConfig(), 'new site from scratch'); return; }
+    if (b.dataset.projUse) { var pr = projects()[b.dataset.projUse]; if (pr) newSiteFromTemplate(b.dataset.projUse, pr); return; }
+    if (b.dataset.projDel) { removeProject(b.dataset.projDel); render(true); return; }
+    if (b.id === 'use-as-tpl' && S.lastImport) {
+      var nm = (S.cfg.nodeName || 'Imported') + ' layout', t = S.lastImport;
+      if (!saveProject(nm, t)) { alertMsg('Could not save the template in this browser. It is still used for this site.'); }
+      S.importNote = ''; newSiteFromTemplate(nm, t, 'new site from project ' + nm); return;
+    }
     if (b.dataset.del) { S.cfg[b.dataset.del].splice(+b.dataset.i, 1); render(true); return; }
     if (b.id === 'add-traffic') { S.cfg.traffic.push({ router: '', vlanPort: '', vlan: '', ip: '', prefix: 27, gw: '' }); render(true); return; }
     if (b.id === 'add-rru' || b.id === 'add-air') {
@@ -1240,6 +1546,7 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
   document.addEventListener('change', function (e) {
     if (e.target.id === 'imp-file') { readFiles(e.target.files, importFiles); e.target.value = ''; return; }
     if (e.target.id === 'chk-file') { readFiles(e.target.files, check); e.target.value = ''; return; }
+    if (e.target.id === 'proj-file') { readFiles(e.target.files, addProject); e.target.value = ''; return; }
     if (e.target.tagName === 'SELECT' || e.target.type === 'checkbox') onField(e);
   });
   ['dragover', 'dragleave', 'drop'].forEach(function (ev) {
@@ -1256,9 +1563,37 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
     if (!n) return;
     files.forEach(function (f, i) { var r = new FileReader(); r.onload = function () { out[i] = { name: f.name, text: String(r.result) }; if (--n === 0) cb(out); }; r.readAsText(f); });
   }
+  function kindOf(t) { return /AutoIntegrationRbsSummaryFile/.test(t) ? 'summary' : /<RiLink|<SectorEquipmentFunction/.test(t) ? 'equip' : /<InterfaceIPv4/.test(t) ? 'basic' : 'unknown'; }
+  function splitFiles(fs) {
+    var o = {}; fs.forEach(function (f) { var k = kindOf(f.text); if (!o[k]) o[k] = f; }); return o;
+  }
   function importFiles(fs) {
-    var r = Core.importFiles(fs.map(function (f) { return f.text; }), S.cfg || blankConfig());
+    var base = isTpl() || !S.cfg ? blankConfig() : S.cfg;
+    var r = Core.importFiles(fs.map(function (f) { return f.text; }), base), parts = splitFiles(fs);
+    S.importNote = ''; S.lastImport = null;
+    if (parts.basic) {
+      var norm = function (t) { return t.replace(/\s+/g, ''); }, regen = '';
+      try { regen = Core.generateSiteBasic(r.cfg); } catch (e) {}
+      var sameEq = true;
+      if (parts.equip) { try { sameEq = norm(Core.generateSiteEquipment(r.cfg)) === norm(parts.equip.text); } catch (e) { sameEq = false; } }
+      if (norm(regen) !== norm(parts.basic.text) || !sameEq) {
+        S.lastImport = { sb: parts.basic.text, eq: parts.equip ? parts.equip.text : '', sbName: parts.basic.name, eqName: parts.equip ? parts.equip.name : '' };
+        S.importNote = 'Its router names, sync, features or radio setup don\'t match the standard builder, so rebuilding it here would change the script. Use it as a project template instead: the tool keeps the file exactly as it is and only changes the site values.';
+      }
+    }
     load(r.cfg, 'imported from ' + fs.map(function (f) { return f.name; }).join(', '), 'review');
+  }
+  function alertMsg(t) { var m = $('proj-msg'); if (m) { m.textContent = t; m.style.color = 'var(--crit)'; } }
+  function addProject(fs) {
+    var parts = splitFiles(fs), name = ($('proj-name') && $('proj-name').value.trim()) || '';
+    if (!parts.basic) return alertMsg('Choose the working Site Basic file (and its Site Equipment).');
+    if (!parts.equip) return alertMsg('Also choose the Site Equipment file from the same site — the RBS Summary needs both.');
+    var bad = Core.lintXml(parts.basic.text).errors.concat(Core.lintXml(parts.equip.text).errors);
+    if (bad.length) return alertMsg('These files have ' + bad.length + ' error(s), so they can\'t be a template. Use files from a site that integrated successfully. First error: ' + bad[0].msg);
+    if (!name) { var P = Core.templateParams(parts.basic.text, parts.equip.text), v = Core.templateValues(P); name = (tplNodeName(v) || 'Project') + ' layout'; }
+    var t = { sb: parts.basic.text, eq: parts.equip.text, sbName: parts.basic.name, eqName: parts.equip.name };
+    saveProject(name, t);
+    newSiteFromTemplate(name, t);
   }
   function check(fs) {
     var names = fs.map(function (f) { return f.name; });
@@ -1294,7 +1629,7 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
     var names = S.last.names, files = [{ name: names.basic, data: S.last.sb }, { name: names.equip, data: S.last.eq }];
     if (S.last.summary) files.push({ name: names.summary, data: S.last.summary });
     var zip = Core.makeZip(files);
-    var zname = Core.safeName(S.last.c.nodeName) + '_site_scripts.zip', blob = new Blob([zip], { type: 'application/zip' });
+    var zname = Core.safeName(isTpl() ? tplNodeName(S.last.v) : S.last.c.nodeName) + '_site_scripts.zip', blob = new Blob([zip], { type: 'application/zip' });
     if (downloadsNs) {
       downloadsNs.save({ filename: zname, data: blob }).then(function () { toast('Saved ' + zname); }, function (e) {
         toast(e && e.code === 'declined' ? 'Download cancelled' : 'Download not available here. Use the Copy buttons.', true);
@@ -1310,7 +1645,7 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
 
   /* ---------- start ---------- */
   var saved = null; try { saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
-  if (saved && saved.cfg && saved.cfg.radios) { S.cfg = saved.cfg; S.label = saved.label || 'your last draft'; S.visited = saved.visited || {}; }
+  if (saved && saved.cfg && (saved.cfg.radios || saved.cfg.mode === 'template')) { S.cfg = saved.cfg; S.label = saved.label || 'your last draft'; S.visited = saved.visited || {}; }
   else { S.cfg = clone(EXAMPLES[EXK[0]]); S.label = EXK[0] + ' example'; }
   var h = (location.hash || '').slice(1);
   if (h === 'check') { S.view = 'check'; render(); }

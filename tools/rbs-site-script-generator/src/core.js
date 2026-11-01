@@ -237,7 +237,7 @@ var Core = (function () {
     id('Node', c.subNetwork, 'SubNetwork');
     id('Node', c.rootMo, 'Root SubNetwork');
     if (c.networkMeId && !/^[A-Za-z0-9_.-]+$/.test(c.networkMeId)) err('Node', 'Network ME ID "' + c.networkMeId + '" has spaces or invalid characters');
-    if (c.fileTag && !/^[A-Za-z0-9_]+$/.test(c.fileTag)) err('Node', 'File name tag "' + c.fileTag + '" may only use letters, digits and _');
+    if (c.fileTag && !/^[A-Za-z0-9_-]+$/.test(c.fileTag)) err('Node', 'File name tag "' + c.fileTag + '" may only use letters, digits, - and _');
     if (!c.user || !c.user.name || !c.user.password) err('Node', 'Maintenance user name and password are required');
     else if (/\s/.test(c.user.name)) err('Node', 'Maintenance user name has spaces');
     id('Transport port', c.tn.port, 'TN port');
@@ -380,7 +380,7 @@ var Core = (function () {
     function err(line, msg) { errors.push({ line: line, msg: msg }); }
     function warn(line, msg) { warnings.push({ line: line, msg: msg }); }
     if (fileName && /\s/.test(fileName)) err(0, 'File name "' + fileName + '" contains spaces — the SFTP download from SMRS can fail. Rename it without spaces.');
-    else if (fileName && /[^A-Za-z0-9_.]/.test(fileName.replace(/\.xml$/i, ''))) warn(0, 'File name "' + fileName + '" has characters other than letters, digits and "_" — keep file names to A-Z, 0-9 and _');
+    else if (fileName && /[^A-Za-z0-9_-]/.test(fileName.replace(/\.xml$/i, ''))) warn(0, 'File name "' + fileName + '" has characters other than letters, digits, - and _');
     function a(mo, n) { var x = mo.attrs[n]; return x ? x[x.length - 1] : null; }
     function byClass(c) { return order.map(function (d) { return mos[d]; }).filter(function (m) { return m.cls === c; }); }
     var ME_PREFIX = 'ManagedElement=1,';
@@ -568,9 +568,181 @@ var Core = (function () {
     return L2;
   }
 
+  /* ---------- project templates: keep a working file's structure, change only site values ---------- */
+  function parseOffsets(text) {
+    var root = { n: '#root', k: [], t: '' }, stack = [root], re = /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!\[CDATA\[([\s\S]*?)\]\]>|<(\/?)([A-Za-z_][\w.:-]*)([^>]*?)(\/?)>|([^<]+)/g, m;
+    while ((m = re.exec(text))) {
+      var top = stack[stack.length - 1];
+      if (m[6] !== undefined) { top.t += m[6]; continue; }
+      if (m[1] !== undefined) { top.t += m[1]; continue; }
+      if (!m[3]) continue;
+      if (m[2]) { if (top.n !== m[3]) throw new Error('closing </' + m[3] + '> does not match <' + top.n + '>'); top.ce = m.index; stack.pop(); continue; }
+      var el = { n: m[3], k: [], t: '', cs: m.index + m[0].length, empty: !!m[5] };
+      top.k.push(el);
+      if (!m[5]) stack.push(el); else el.ce = el.cs;
+    }
+    if (stack.length > 1) throw new Error('Element <' + stack[stack.length - 1].n + '> is never closed');
+    return root;
+  }
+  function tplModel(text, file) {
+    var tree = parseOffsets(text), mos = {}, order = [];
+    function leaf(el) {
+      var raw = text.slice(el.cs, el.ce), lead = raw.length - raw.replace(/^\s+/, '').length, val = raw.trim();
+      return { v: decode(val), s: el.cs + lead, e: el.cs + lead + val.length, f: file, empty: el.empty || !val };
+    }
+    (function walk(node, dn) {
+      node.k.forEach(function (ch) {
+        var idName = ch.n.charAt(0).toLowerCase() + ch.n.slice(1) + 'Id';
+        var idEl = ch.k.filter(function (g) { return g.n === idName; })[0];
+        if (idEl) {
+          var idv = decode(idEl.t.trim()), mydn = (dn ? dn + ',' : '') + ch.n + '=' + idv;
+          var mo = mos[mydn] || (mos[mydn] = { cls: ch.n, id: idv, dn: mydn, a: {} });
+          if (order.indexOf(mydn) < 0) order.push(mydn);
+          ch.k.forEach(function (g) {
+            if (g === idEl) return;
+            var gIdName = g.n.charAt(0).toLowerCase() + g.n.slice(1) + 'Id';
+            if (g.k.some(function (x) { return x.n === gIdName; })) return;
+            (mo.a[g.n] = mo.a[g.n] || []).push(g.k.length ? { node: g } : leaf(g));
+          });
+          walk(ch, mydn);
+        } else if (/^(rpc|edit-config|config|data|action)$/.test(ch.n)) walk(ch, dn);
+      });
+    })(tree, '');
+    return { mos: mos, order: order, all: function (cls) { return order.filter(function (d) { return mos[d].cls === cls; }).map(function (d) { return mos[d]; }); } };
+  }
+  function first(mo, n) { return mo && mo.a[n] ? mo.a[n][mo.a[n].length - 1] : null; }
+
+  // Reads the editable site values out of a project's working Site Basic / Site Equipment.
+  function templateParams(sbText, eqText) {
+    var M = tplModel(sbText, 'sb'), E = eqText ? tplModel(eqText, 'eq') : null, P = { node: {}, rows: [], services: [], equipment: {} };
+    var me = M.mos['ManagedElement=1'];
+    var dp = first(me, 'dnPrefix');
+    if (dp) {
+      var i = dp.v.lastIndexOf('MeContext=');
+      if (i >= 0) P.node.meContext = { v: dp.v.slice(i + 10), s: dp.s + i + 10, e: dp.e, f: 'sb', label: 'MeContext (in dnPrefix)' };
+      P.node.dnPrefix = dp.v;
+    }
+    var fp = first(M.mos['ManagedElement=1,SystemFunctions=1,Lm=1'], 'fingerprint');
+    if (fp) P.node.fingerprint = Object.assign({ label: 'Fingerprint' }, fp);
+    var nme = first(me, 'networkManagedElementId');
+    if (nme) P.node.networkMeId = Object.assign({ label: 'Network ME ID' }, nme);
+    if (E) { var ln = first(E.mos['ManagedElement=1'], 'logicalName'); if (ln) P.node.logicalName = Object.assign({ label: 'Logical name (Site Equipment)' }, ln); }
+    // interfaces
+    M.all('InterfaceIPv4').forEach(function (ifc) {
+      var addrMos = M.order.filter(function (d) { return d.indexOf(ifc.dn + ',AddressIPv4=') === 0; }).map(function (d) { return M.mos[d]; });
+      var router = (/Router=([^,]+)/.exec(ifc.dn) || [])[1], enc = first(ifc, 'encapsulation'), lb = first(ifc, 'loopback');
+      addrMos.forEach(function (am) {
+        var ad = first(am, 'address'); if (!ad) return;
+        var cm = /^([\d.]+)\/(\d+)$/.exec(ad.v); if (!cm) return;
+        var row = { router: router, iface: ifc.id, addrId: am.id, loopback: !!lb, ip: cm[1], prefix: +cm[2], addr: ad, vlanPort: '', ethPort: '', vlan: null, gw: null };
+        var vp = enc && /VlanPort=([^,]+)$/.exec(enc.v);
+        if (vp) {
+          var vmo = M.mos['ManagedElement=1,Transport=1,VlanPort=' + vp[1]];
+          row.vlanPort = vp[1]; row.vlan = first(vmo, 'vlanId'); var ve = first(vmo, 'encapsulation'); row.ethPort = ve ? ve.v : '';
+        } else if (enc) row.ethPort = enc.v;
+        // gateway: next hop of this router inside the interface subnet, else the default route's next hop
+        var nhs = M.order.filter(function (d) { return d.indexOf('ManagedElement=1,Transport=1,Router=' + router + ',RouteTableIPv4Static=') === 0 && M.mos[d].cls === 'NextHop'; })
+          .map(function (d) { return first(M.mos[d], 'address'); }).filter(Boolean);
+        var n = ip2n(cm[1]), p = +cm[2];
+        row.gw = nhs.filter(function (h) { var g = ip2n(h.v); return g != null && p < 32 && net(g, p) === net(n, p); })[0] || (nhs.length === 1 && !lb ? nhs[0] : null);
+        P.rows.push(row);
+      });
+    });
+    // project-wide services
+    function svc(cls, attr, label) { M.all(cls).forEach(function (mo) { (mo.a[attr] || []).forEach(function (x) { if (x.v !== undefined) P.services.push(Object.assign({ label: label + (M.all(cls).length > 1 ? ' ' + mo.id : ''), kind: attr === 'uri' ? 'uri' : 'ip' }, x)); }); }); }
+    svc('NtpServer', 'serverAddress', 'NTP server');
+    svc('SnmpTargetV2C', 'address', 'SNMP target');
+    svc('DnsClient', 'serverAddress', 'DNS server');
+    svc('NtpFrequencySync', 'syncServerNtpIpAddress', 'NTP sync server');
+    svc('PtpBcOcPort', 'associatedGrandmaster', 'PTP grandmaster');
+    svc('EnrollmentServer', 'uri', 'Enrollment server URI');
+    if (E) P.equipment = { sectors: E.all('SectorEquipmentFunction').map(function (x) { return x.id; }), frus: E.all('FieldReplaceableUnit').map(function (x) { return x.id; }), riLinks: E.all('RiLink').length };
+    P.features = M.all('FeatureState').map(function (x) { return x.id; });
+    return P;
+  }
+  function templateValues(P) {
+    var v = { node: {}, rows: P.rows.map(function (r) { return { vlan: r.vlan ? r.vlan.v : '', ip: r.ip, prefix: r.prefix, gw: r.gw ? r.gw.v : '' }; }), services: P.services.map(function (x) { return x.v; }) };
+    Object.keys(P.node).forEach(function (k) { if (P.node[k] && P.node[k].v !== undefined) v.node[k] = P.node[k].v; });
+    return v;
+  }
+  var NAME_RE = /^[A-Za-z0-9_-]+$/;
+  function validateTemplate(P, v) {
+    var errors = [], warnings = [];
+    function err(w, m) { errors.push({ where: w, msg: m }); }
+    function warn(w, m) { warnings.push({ where: w, msg: m }); }
+    Object.keys(P.node).forEach(function (k) {
+      if (!P.node[k] || P.node[k].v === undefined) return;
+      var x = String(v.node[k] || '').trim();
+      if (!x) err('Node', P.node[k].label + ' is empty');
+      else if (!NAME_RE.test(x)) err('Node', P.node[k].label + ' "' + x + '" may only use letters, digits, - and _');
+    });
+    var vl = {}, ips = {}, nets = [];
+    P.rows.forEach(function (r, i) {
+      var x = v.rows[i], w = 'Interface ' + r.router + (r.iface !== '1' ? '/' + r.iface : '');
+      var p = Number(x.prefix), okP = /^\d+$/.test(String(x.prefix)) && p >= 8 && p <= 32;
+      if (!okP) err(w, 'Prefix /' + x.prefix + ' must be between /8 and /32');
+      var n = ip2n(x.ip);
+      if (n == null) err(w, 'IP "' + (x.ip || '') + '" is not a valid IPv4 address');
+      if (r.vlan) {
+        var vv = Number(x.vlan);
+        if (!/^\d+$/.test(String(x.vlan)) || vv < 1 || vv > 4094) err(w, 'VLAN "' + x.vlan + '" must be a number 1–4094');
+        else {
+          var key = r.ethPort + '#' + vv;
+          if (vl[key] && vl[key].vp !== r.vlanPort) err(w, 'VLAN ' + vv + ' is already used by ' + vl[key].w + ' on the same port — the node will reject it at commit (sa_ais_err_bad_operation)');
+          else if (vl[key] && vl[key].vp === r.vlanPort && vl[key].val !== vv) err(w, 'VlanPort ' + r.vlanPort + ' is shared with ' + vl[key].w + ' — give both the same VLAN');
+          vl[key] = vl[key] || { w: w, vp: r.vlanPort, val: vv };
+        }
+      }
+      if (n != null && okP) {
+        if (p < 31) { var nw = net(n, p), bc = (nw | (~mask(p) >>> 0)) >>> 0; if (n === nw || n === bc) err(w, x.ip + '/' + p + ' is the network or broadcast address'); }
+        if (ips[x.ip]) err(w, 'IP ' + x.ip + ' is already used by ' + ips[x.ip]); else ips[x.ip] = w;
+        nets.forEach(function (o) { var mp = Math.min(o.p, p); if (p < 32 && o.p < 32 && net(o.n, mp) === net(n, mp)) warn(w, 'Subnet overlaps ' + o.w + ' — check the IP plan'); });
+        nets.push({ n: n, p: p, w: w });
+        if (r.gw) {
+          var g = ip2n(x.gw);
+          if (g == null) err(w, 'Gateway "' + (x.gw || '') + '" is not a valid IPv4 address');
+          else if (p < 32 && net(g, p) !== net(n, p)) err(w, 'Gateway ' + x.gw + ' is outside ' + n2ip(net(n, p)) + '/' + p + ' — the default route will not work');
+          else if (g === n) err(w, 'Gateway equals the interface IP');
+        }
+      }
+    });
+    P.services.forEach(function (sv, i) {
+      var x = String(v.services[i] || '').trim();
+      if (sv.kind === 'uri') { if (!/^https?:\/\/\S+$/.test(x)) err('Services', sv.label + ' must start with http:// or https:// and have no spaces'); }
+      else if (ip2n(x) == null) err('Services', sv.label + ' "' + x + '" is not a valid IPv4 address');
+    });
+    return { errors: errors, warnings: warnings };
+  }
+  function applyTemplate(sbText, eqText, P, v) {
+    var edits = { sb: [], eq: [] };
+    function put(span, val) { if (span && span.s !== undefined && String(val) !== span.v) edits[span.f].push({ s: span.s, e: span.e, t: escAttr(String(val).trim()) }); }
+    Object.keys(P.node).forEach(function (k) { if (P.node[k] && P.node[k].s !== undefined) put(P.node[k], v.node[k]); });
+    var seenVlan = {};
+    P.rows.forEach(function (r, i) {
+      var x = v.rows[i];
+      put(r.addr, String(x.ip).trim() + '/' + String(x.prefix).trim());
+      if (r.vlan && !seenVlan[r.vlan.s]) { put(r.vlan, x.vlan); seenVlan[r.vlan.s] = 1; }
+      if (r.gw) put(r.gw, x.gw);
+    });
+    P.services.forEach(function (sv, i) { put(sv, v.services[i]); });
+    function run(text, list) {
+      var seen = {}; list = list.filter(function (x) { var k = x.s + ':' + x.e; if (seen[k]) return false; seen[k] = 1; return true; }).sort(function (a, b) { return b.s - a.s; });
+      list.forEach(function (x) { text = text.slice(0, x.s) + x.t + text.slice(x.e); });
+      return text;
+    }
+    return { sb: run(sbText, edits.sb), eq: eqText ? run(eqText, edits.eq) : '' };
+  }
+  function moshellChecksTemplate(P, v) {
+    var L = ['lt all', 'alt', 'st ethernetport|vlanport|interfaceipv4', 'hget vlanport vlanid|encapsulation',
+      'hget interfaceipv4 encapsulation|loopback|operationalstate', 'hget addressipv4 address', 'hget nexthop address'];
+    P.rows.forEach(function (r, i) { if (r.gw && v.rows[i].gw) L.push('mcc router=' + r.router + ' ping --count 3 ' + v.rows[i].gw); });
+    L.push('st ntpserver', 'st rilink', 'st sectorequipmentfunction', 'st fieldreplaceableunit');
+    return L;
+  }
+
   /* ---------- file names + RBS Summary ---------- */
-  // File names use only letters, digits and "_" (no spaces, "-", "/" or other symbols).
-  function safeName(s) { return String(s == null ? '' : s).trim().replace(/[^A-Za-z0-9_]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, ''); }
+  // File names use only letters, digits, "-" and "_" (no spaces, "/" or other symbols).
+  function safeName(s) { return String(s == null ? '' : s).trim().replace(/[^A-Za-z0-9_-]+/g, '_').replace(/_+/g, '_').replace(/^[_-]+|[_-]+$/g, ''); }
   function fileNames(c) {
     var node = safeName(c.nodeName), tag = safeName(c.fileTag);
     var suffix = node + (tag ? '_' + tag : '');
@@ -601,7 +773,7 @@ var Core = (function () {
   function lintSummary(text, fileName) {
     var errors = [], warnings = [];
     function err(msg) { errors.push({ line: 0, msg: msg }); }
-    if (fileName && /[^A-Za-z0-9_.]/.test(fileName.replace(/\.xml$/i, ''))) warnings.push({ line: 0, msg: 'File name "' + fileName + '" has characters other than letters, digits and "_"' });
+    if (fileName && /[^A-Za-z0-9_-]/.test(fileName.replace(/\.xml$/i, ''))) warnings.push({ line: 0, msg: 'File name "' + fileName + '" has characters other than letters, digits, - and _' });
     try { parseXml(text); } catch (e) { err('XML is broken: ' + e.message); }
     if (!/<summary:AutoIntegrationRbsSummaryFile\b[^>]*xmlns:summary="http:\/\/www\.ericsson\.se\/RbsSummaryFileSchema"/.test(text)) err('Root element or summary namespace is not the expected one');
     if (!/<Format\s+revision="F"\s*\/>/.test(text)) err('Format revision="F" element is missing');
@@ -612,12 +784,12 @@ var Core = (function () {
       else if (!v.trim()) err(a + ' is empty');
       else if (/[<>]/.test(v)) err(a + ' still has a placeholder value');
       else if (/\s/.test(v)) err(a + ' "' + v + '" contains spaces');
-      else if (a !== 'upgradePackageFilePath' && /[^A-Za-z0-9_.\/]/.test(v)) warnings.push({ line: 0, msg: a + ' "' + v + '" has characters other than letters, digits and "_"' });
+      else if (a !== 'upgradePackageFilePath' && /[^A-Za-z0-9_.\/-]/.test(v)) warnings.push({ line: 0, msg: a + ' "' + v + '" has characters other than letters, digits, - and _' });
     });
     return { errors: errors, warnings: warnings, info: info };
   }
 
   return { generateSiteBasic: generateSiteBasic, generateSiteEquipment: generateSiteEquipment, validateConfig: validateConfig,
-    lintXml: lintXml, lintSummary: lintSummary, generateSummary: generateSummary, summaryStatus: summaryStatus, safeName: safeName, importFiles: importFiles, makeZip: makeZip, moshellChecks: moshellChecks, fileNames: fileNames, BB_RI_PORTS: BB_RI_PORTS, ip2n: ip2n };
+    lintXml: lintXml, templateParams: templateParams, templateValues: templateValues, validateTemplate: validateTemplate, applyTemplate: applyTemplate, moshellChecksTemplate: moshellChecksTemplate, lintSummary: lintSummary, generateSummary: generateSummary, summaryStatus: summaryStatus, safeName: safeName, importFiles: importFiles, makeZip: makeZip, moshellChecks: moshellChecks, fileNames: fileNames, BB_RI_PORTS: BB_RI_PORTS, ip2n: ip2n };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

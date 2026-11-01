@@ -30,6 +30,21 @@ Two output styles:
 | Full ENM style | Security (CertM, LDAP), CLI SSH, DNS, BFD on routes, tagged VLANs |
 | Basic interim style | Minimal transport + OAM + NTP/SNMP, as produced by interim generators |
 
+## Different projects: project templates
+
+Every operator project has its own script layout: router names (OAM/WRAT/S1-MME/GRAT, vr_LTE/SYNC, Traffic_LTE/NR_CP/NR_UP), PTP or NTP sync, feature keys, and radio setups such as one RRU serving three sectors. A single fixed builder can't cover all of them, so the tool has two ways to work:
+
+| Mode | When to use | How it builds the files |
+|---|---|---|
+| Standard builder | Projects using the standard layout (OAM, traffic routers, internal F1, RRU/AIR per sector) | Builds both files from the form |
+| Project template | Any other project | Takes one working site's Site Basic + Site Equipment, keeps every line, and changes only the site values |
+
+**Set up a project once:** Start → Project templates → name it → choose the Site Basic + Site Equipment of a site that integrated successfully. Files with errors are refused, because a template must be known-good. Templates are kept in your browser; anyone else on the team loads the same two files once.
+
+**For each new site:** pick the project → enter the node names (MeContext, fingerprint, Network ME ID), then each interface's VLAN, IP, prefix and gateway from the TRM plan → review (changed values are bold) → generate. Router names, interface names, sync, features and the whole Site Equipment stay exactly as in the template. The same checks run: duplicate VLAN on a port, gateway outside subnet, duplicate IP, names with spaces, and the full file checker on the output.
+
+If you import ENM files whose layout doesn't match the standard builder, the tool says so and offers to use them as a project template, so it never silently rebuilds a different script.
+
 ## RBS Summary file (manual integration)
 
 The tool also writes `RBSSummary_<node>.xml` pointing to the generated files:
@@ -44,7 +59,7 @@ The tool also writes `RBSSummary_<node>.xml` pointing to the generated files:
 
 - The Site Basic and Site Equipment paths are the exact names the tool generated in the same run.
 - The upgrade package is never guessed. The summary is only created when it's entered (or imported from an existing summary), and it's used exactly as typed.
-- All generated file names use only letters, digits and `_`. Node names inside the XML keep their real form (e.g. `SITE01-NL`).
+- All generated file names use only letters, digits, `-` and `_`. Spaces, `/` and other symbols become `_`.
 - The summary is checked before release: root element, namespace, `Format revision="F"`, and all three paths present, non-empty and without placeholders.
 
 ## Checks that block generation
