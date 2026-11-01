@@ -12,7 +12,7 @@ var EXAMPLES = (function () {
   }
   return {
     'Full-style': {
-      style: 'full', nodeName: 'SITE01-NL', subNetwork: 'NR', rootMo: 'ONRM_RootMo', networkMeId: 'SITE01-NL', fileTag: '',
+      style: 'full', nodeName: 'SITE01-NL', subNetwork: 'NR', rootMo: 'ONRM_RootMo', networkMeId: 'SITE01-NL', fileTag: '', upgradePackage: 'Baseband_Radio_Node-CXP2010174_2-R42L18',
       user: { name: 'rbs', password: 'rbs' },
       tn: { port: 'TN_IDL_C_1', fru: 'BB-1', mode: '1G_FULL', autoNeg: true },
       oam: { router: 'OAM', vlanPort: 'OAM', vlan: 3407, ip: '10.20.1.133', prefix: 27, gw: '10.20.1.129' },
@@ -31,7 +31,7 @@ var EXAMPLES = (function () {
       radios: radios()
     },
     'Basic-style': {
-      style: 'basic', nodeName: 'SITE02-NL', subNetwork: 'NR', rootMo: 'ONRM_RootMo', networkMeId: 'SITE02-NL', fileTag: '',
+      style: 'basic', nodeName: 'SITE02-NL', subNetwork: 'NR', rootMo: 'ONRM_RootMo', networkMeId: 'SITE02-NL', fileTag: '', upgradePackage: 'Baseband_Radio_Node-CXP2010174_2-R42L18',
       user: { name: 'rbs', password: 'rbs' },
       tn: { port: 'TN_IDL_C', fru: 'BB-1', mode: '1G_FULL', autoNeg: true },
       oam: { router: 'vr_OAM', vlanPort: 'OAM', vlan: 3251, ip: '10.20.2.196', prefix: 27, gw: '10.20.2.193' },

@@ -39,4 +39,19 @@ const dupVlan = sb.replace('<vlanId>3944</vlanId>', '<vlanId>3250</vlanId>');
 ok(C.lintXml(dupVlan).errors.some(e => /already used/.test(e.msg)), 'checker: duplicate VLAN');
 ok(C.lintXml(sb, 'Site Basic.xml').errors.some(e => /spaces/.test(e.msg)), 'checker: space in file name');
 
+
+// file names + RBS Summary
+const fn = C.fileNames(Object.assign(clone(base), { nodeName: 'SITE01-NL', fileTag: '2026_10_28' }));
+ok(Object.values(fn).every(n => /^[A-Za-z0-9_]+\.xml$/.test(n)), 'file names use only letters, digits and _ (' + fn.basic + ')');
+const sum = C.generateSummary(fn, base.upgradePackage);
+const ls = C.lintXml(sum, fn.summary);
+ok(ls.errors.length === 0 && ls.info.paths.siteBasicFilePath === fn.basic && ls.info.paths.siteEquipmentFilePath === fn.equip && ls.info.paths.upgradePackageFilePath === base.upgradePackage, 'summary points to the generated files and the upgrade package');
+ok(/<Format revision="F" \/>/.test(sum) && /xmlns:summary="http:\/\/www\.ericsson\.se\/RbsSummaryFileSchema"/.test(sum), 'summary keeps root, namespace and Format revision F');
+let threw = false; try { C.generateSummary(fn, ''); } catch (e) { threw = true; }
+ok(threw && !C.summaryStatus(Object.assign(clone(base), { upgradePackage: '' })).ok, 'no summary without an upgrade package');
+ok(C.lintXml(sum.replace(/siteEquipmentFilePath="[^"]*"/, 'siteEquipmentFilePath=""')).errors.length > 0, 'checker: empty path in summary');
+ok(C.lintXml(sum.replace(/upgradePackageFilePath="[^"]*"/, 'upgradePackageFilePath="<upgrade-package>"')).errors.length > 0, 'checker: placeholder left in summary');
+ok(C.importFiles([sum], clone(EX['Basic-style'])).cfg.upgradePackage === base.upgradePackage, 'import reads the upgrade package from a summary');
+ok(C.validateConfig(Object.assign(clone(base), { fileTag: '2026-10-28' })).errors.length > 0, 'blocks: "-" in file name tag');
+
 console.log(fail ? fail + ' test(s) failed' : 'All tests passed'); process.exit(fail ? 1 : 0);

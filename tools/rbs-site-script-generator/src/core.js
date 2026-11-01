@@ -237,6 +237,7 @@ var Core = (function () {
     id('Node', c.subNetwork, 'SubNetwork');
     id('Node', c.rootMo, 'Root SubNetwork');
     if (c.networkMeId && !/^[A-Za-z0-9_.-]+$/.test(c.networkMeId)) err('Node', 'Network ME ID "' + c.networkMeId + '" has spaces or invalid characters');
+    if (c.fileTag && !/^[A-Za-z0-9_]+$/.test(c.fileTag)) err('Node', 'File name tag "' + c.fileTag + '" may only use letters, digits and _');
     if (!c.user || !c.user.name || !c.user.password) err('Node', 'Maintenance user name and password are required');
     else if (/\s/.test(c.user.name)) err('Node', 'Maintenance user name has spaces');
     id('Transport port', c.tn.port, 'TN port');
@@ -373,11 +374,13 @@ var Core = (function () {
   }
 
   function lintXml(text, fileName) {
+    if (/AutoIntegrationRbsSummaryFile/.test(text)) { var ls = lintSummary(text, fileName); ls.info.moCount = 0; return ls; }
     var warnings = [], info = {};
     var map = buildMoMap(text), mos = map.mos, order = map.order, errors = map.errors.slice();
     function err(line, msg) { errors.push({ line: line, msg: msg }); }
     function warn(line, msg) { warnings.push({ line: line, msg: msg }); }
     if (fileName && /\s/.test(fileName)) err(0, 'File name "' + fileName + '" contains spaces — the SFTP download from SMRS can fail. Rename it without spaces.');
+    else if (fileName && /[^A-Za-z0-9_.]/.test(fileName.replace(/\.xml$/i, ''))) warn(0, 'File name "' + fileName + '" has characters other than letters, digits and "_" — keep file names to A-Z, 0-9 and _');
     function a(mo, n) { var x = mo.attrs[n]; return x ? x[x.length - 1] : null; }
     function byClass(c) { return order.map(function (d) { return mos[d]; }).filter(function (m) { return m.cls === c; }); }
     var ME_PREFIX = 'ManagedElement=1,';
@@ -469,6 +472,10 @@ var Core = (function () {
     function last(dn) { return dn.split(',').pop().split('=').slice(1).join('='); }
     var ME = 'ManagedElement=1';
     var hasBasic = all('InterfaceIPv4').length > 0, hasEq = all('RiLink').length > 0;
+    texts.forEach(function (t) {
+      if (/AutoIntegrationRbsSummaryFile/.test(t)) { var up = attr(t, 'upgradePackageFilePath'); if (up) { c.upgradePackage = up; notes.push('Upgrade package read from the summary file: ' + up); } }
+    });
+    if (!hasBasic && !hasEq && c.upgradePackage !== base.upgradePackage) return { cfg: c, notes: notes };
     if (!hasBasic && !hasEq) return { cfg: base, notes: ['No SiteBasic or SiteEquipment content was found in the file.'] };
     var dp = a(ME, 'dnPrefix'), m = dp && /SubNetwork=([^,]+),SubNetwork=([^,]+),MeContext=(.+)$/.exec(dp);
     if (m) { c.rootMo = m[1]; c.subNetwork = m[2]; c.nodeName = m[3]; }
@@ -561,12 +568,56 @@ var Core = (function () {
     return L2;
   }
 
+  /* ---------- file names + RBS Summary ---------- */
+  // File names use only letters, digits and "_" (no spaces, "-", "/" or other symbols).
+  function safeName(s) { return String(s == null ? '' : s).trim().replace(/[^A-Za-z0-9_]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, ''); }
   function fileNames(c) {
-    var tag = c.fileTag ? '_' + c.fileTag : '';
-    return { basic: '01_SiteBasic_' + c.nodeName + tag + '.xml', equip: '02_SiteEquipment_' + c.nodeName + tag + '.xml' };
+    var node = safeName(c.nodeName), tag = safeName(c.fileTag);
+    var suffix = node + (tag ? '_' + tag : '');
+    return { basic: '01_SiteBasic_' + suffix + '.xml', equip: '02_SiteEquipment_' + suffix + '.xml', summary: 'RBSSummary_' + suffix + '.xml' };
+  }
+  function escAttr(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  var UP_RE = /^[A-Za-z0-9_.\-\/]+$/;
+  function summaryStatus(c) {
+    var missing = [], up = String(c.upgradePackage || '').trim();
+    if (!up) missing.push('Upgrade package name/path is missing — enter it exactly as it is on SMRS (e.g. the package the node downloads).');
+    else if (!UP_RE.test(up)) missing.push('Upgrade package "' + up + '" has spaces or unsupported characters.');
+    else if (/[<>]/.test(up)) missing.push('Upgrade package still contains a placeholder.');
+    return { ok: !missing.length, missing: missing };
+  }
+  function generateSummary(names, up) {
+    var vals = [names.basic, names.equip, String(up || '').trim()];
+    if (vals.some(function (v) { return !v || /[<>]/.test(v); })) throw new Error('Summary needs all three values (Site Basic, Site Equipment, upgrade package)');
+    var xml = '<?xml version="1.0" encoding="UTF-8"?>\r\n' +
+      '<summary:AutoIntegrationRbsSummaryFile xmlns:summary="http://www.ericsson.se/RbsSummaryFileSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.ericsson.se/RbsSummaryFileSchemaSummaryFile.xsd">\r\n' +
+      '  <Format revision="F" />\r\n' +
+      '  <ConfigurationFiles siteBasicFilePath="' + escAttr(vals[0]) + '" siteEquipmentFilePath="' + escAttr(vals[1]) + '" upgradePackageFilePath="' + escAttr(vals[2]) + '" />\r\n' +
+      '</summary:AutoIntegrationRbsSummaryFile>\r\n';
+    var chk = lintSummary(xml);
+    if (chk.errors.length) throw new Error('Summary self-check failed: ' + chk.errors[0].msg);
+    return xml;
+  }
+  function attr(text, name) { var m = new RegExp('\\b' + name + '="([^"]*)"').exec(text); return m ? decode(m[1]) : null; }
+  function lintSummary(text, fileName) {
+    var errors = [], warnings = [];
+    function err(msg) { errors.push({ line: 0, msg: msg }); }
+    if (fileName && /[^A-Za-z0-9_.]/.test(fileName.replace(/\.xml$/i, ''))) warnings.push({ line: 0, msg: 'File name "' + fileName + '" has characters other than letters, digits and "_"' });
+    try { parseXml(text); } catch (e) { err('XML is broken: ' + e.message); }
+    if (!/<summary:AutoIntegrationRbsSummaryFile\b[^>]*xmlns:summary="http:\/\/www\.ericsson\.se\/RbsSummaryFileSchema"/.test(text)) err('Root element or summary namespace is not the expected one');
+    if (!/<Format\s+revision="F"\s*\/>/.test(text)) err('Format revision="F" element is missing');
+    var info = { kind: 'RbsSummary', paths: {} };
+    ['siteBasicFilePath', 'siteEquipmentFilePath', 'upgradePackageFilePath'].forEach(function (a) {
+      var v = attr(text, a); info.paths[a] = v;
+      if (v == null) err(a + ' is missing');
+      else if (!v.trim()) err(a + ' is empty');
+      else if (/[<>]/.test(v)) err(a + ' still has a placeholder value');
+      else if (/\s/.test(v)) err(a + ' "' + v + '" contains spaces');
+      else if (a !== 'upgradePackageFilePath' && /[^A-Za-z0-9_.\/]/.test(v)) warnings.push({ line: 0, msg: a + ' "' + v + '" has characters other than letters, digits and "_"' });
+    });
+    return { errors: errors, warnings: warnings, info: info };
   }
 
   return { generateSiteBasic: generateSiteBasic, generateSiteEquipment: generateSiteEquipment, validateConfig: validateConfig,
-    lintXml: lintXml, importFiles: importFiles, makeZip: makeZip, moshellChecks: moshellChecks, fileNames: fileNames, BB_RI_PORTS: BB_RI_PORTS, ip2n: ip2n };
+    lintXml: lintXml, lintSummary: lintSummary, generateSummary: generateSummary, summaryStatus: summaryStatus, safeName: safeName, importFiles: importFiles, makeZip: makeZip, moshellChecks: moshellChecks, fileNames: fileNames, BB_RI_PORTS: BB_RI_PORTS, ip2n: ip2n };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

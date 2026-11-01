@@ -12,7 +12,7 @@ Everything runs in the browser and nothing is uploaded. You can also save `index
 2. **Site & node:** node name, ENM services (SNMP, NTP, DNS), security, radios.
 3. **Interfaces:** transport port, OAM, traffic VLANs and IPs, internal F1.
 4. **Review:** the VLAN/IP plan, node settings and RI links on one screen, with open issues and links to fix them.
-5. **Validate & generate:** the files unlock only when every check passes. Download as a zip, or copy them.
+5. **Validate & generate:** the files unlock only when every check passes. Download as a zip, or copy them. Includes the **RBS Summary** for manual integration.
 
 Each step shows its own error count in the side rail, and fields with errors are highlighted.
 
@@ -29,6 +29,23 @@ Two output styles:
 |---|---|
 | Full ENM style | Security (CertM, LDAP), CLI SSH, DNS, BFD on routes, tagged VLANs |
 | Basic interim style | Minimal transport + OAM + NTP/SNMP, as produced by interim generators |
+
+## RBS Summary file (manual integration)
+
+The tool also writes `RBSSummary_<node>.xml` pointing to the generated files:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<summary:AutoIntegrationRbsSummaryFile xmlns:summary="http://www.ericsson.se/RbsSummaryFileSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.ericsson.se/RbsSummaryFileSchemaSummaryFile.xsd">
+  <Format revision="F" />
+  <ConfigurationFiles siteBasicFilePath="01_SiteBasic_SITE01_NL.xml" siteEquipmentFilePath="02_SiteEquipment_SITE01_NL.xml" upgradePackageFilePath="Baseband_Radio_Node-CXP2010174_2-R42L18" />
+</summary:AutoIntegrationRbsSummaryFile>
+```
+
+- The Site Basic and Site Equipment paths are the exact names the tool generated in the same run.
+- The upgrade package is never guessed. The summary is only created when it's entered (or imported from an existing summary), and it's used exactly as typed.
+- All generated file names use only letters, digits and `_`. Node names inside the XML keep their real form (e.g. `SITE01-NL`).
+- The summary is checked before release: root element, namespace, `Format revision="F"`, and all three paths present, non-empty and without placeholders.
 
 ## Checks that block generation
 

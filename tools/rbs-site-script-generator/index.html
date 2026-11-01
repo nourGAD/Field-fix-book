@@ -445,6 +445,7 @@ var Core = (function () {
     id('Node', c.subNetwork, 'SubNetwork');
     id('Node', c.rootMo, 'Root SubNetwork');
     if (c.networkMeId && !/^[A-Za-z0-9_.-]+$/.test(c.networkMeId)) err('Node', 'Network ME ID "' + c.networkMeId + '" has spaces or invalid characters');
+    if (c.fileTag && !/^[A-Za-z0-9_]+$/.test(c.fileTag)) err('Node', 'File name tag "' + c.fileTag + '" may only use letters, digits and _');
     if (!c.user || !c.user.name || !c.user.password) err('Node', 'Maintenance user name and password are required');
     else if (/\s/.test(c.user.name)) err('Node', 'Maintenance user name has spaces');
     id('Transport port', c.tn.port, 'TN port');
@@ -581,11 +582,13 @@ var Core = (function () {
   }
 
   function lintXml(text, fileName) {
+    if (/AutoIntegrationRbsSummaryFile/.test(text)) { var ls = lintSummary(text, fileName); ls.info.moCount = 0; return ls; }
     var warnings = [], info = {};
     var map = buildMoMap(text), mos = map.mos, order = map.order, errors = map.errors.slice();
     function err(line, msg) { errors.push({ line: line, msg: msg }); }
     function warn(line, msg) { warnings.push({ line: line, msg: msg }); }
     if (fileName && /\s/.test(fileName)) err(0, 'File name "' + fileName + '" contains spaces — the SFTP download from SMRS can fail. Rename it without spaces.');
+    else if (fileName && /[^A-Za-z0-9_.]/.test(fileName.replace(/\.xml$/i, ''))) warn(0, 'File name "' + fileName + '" has characters other than letters, digits and "_" — keep file names to A-Z, 0-9 and _');
     function a(mo, n) { var x = mo.attrs[n]; return x ? x[x.length - 1] : null; }
     function byClass(c) { return order.map(function (d) { return mos[d]; }).filter(function (m) { return m.cls === c; }); }
     var ME_PREFIX = 'ManagedElement=1,';
@@ -677,6 +680,10 @@ var Core = (function () {
     function last(dn) { return dn.split(',').pop().split('=').slice(1).join('='); }
     var ME = 'ManagedElement=1';
     var hasBasic = all('InterfaceIPv4').length > 0, hasEq = all('RiLink').length > 0;
+    texts.forEach(function (t) {
+      if (/AutoIntegrationRbsSummaryFile/.test(t)) { var up = attr(t, 'upgradePackageFilePath'); if (up) { c.upgradePackage = up; notes.push('Upgrade package read from the summary file: ' + up); } }
+    });
+    if (!hasBasic && !hasEq && c.upgradePackage !== base.upgradePackage) return { cfg: c, notes: notes };
     if (!hasBasic && !hasEq) return { cfg: base, notes: ['No SiteBasic or SiteEquipment content was found in the file.'] };
     var dp = a(ME, 'dnPrefix'), m = dp && /SubNetwork=([^,]+),SubNetwork=([^,]+),MeContext=(.+)$/.exec(dp);
     if (m) { c.rootMo = m[1]; c.subNetwork = m[2]; c.nodeName = m[3]; }
@@ -769,13 +776,57 @@ var Core = (function () {
     return L2;
   }
 
+  /* ---------- file names + RBS Summary ---------- */
+  // File names use only letters, digits and "_" (no spaces, "-", "/" or other symbols).
+  function safeName(s) { return String(s == null ? '' : s).trim().replace(/[^A-Za-z0-9_]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, ''); }
   function fileNames(c) {
-    var tag = c.fileTag ? '_' + c.fileTag : '';
-    return { basic: '01_SiteBasic_' + c.nodeName + tag + '.xml', equip: '02_SiteEquipment_' + c.nodeName + tag + '.xml' };
+    var node = safeName(c.nodeName), tag = safeName(c.fileTag);
+    var suffix = node + (tag ? '_' + tag : '');
+    return { basic: '01_SiteBasic_' + suffix + '.xml', equip: '02_SiteEquipment_' + suffix + '.xml', summary: 'RBSSummary_' + suffix + '.xml' };
+  }
+  function escAttr(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  var UP_RE = /^[A-Za-z0-9_.\-\/]+$/;
+  function summaryStatus(c) {
+    var missing = [], up = String(c.upgradePackage || '').trim();
+    if (!up) missing.push('Upgrade package name/path is missing — enter it exactly as it is on SMRS (e.g. the package the node downloads).');
+    else if (!UP_RE.test(up)) missing.push('Upgrade package "' + up + '" has spaces or unsupported characters.');
+    else if (/[<>]/.test(up)) missing.push('Upgrade package still contains a placeholder.');
+    return { ok: !missing.length, missing: missing };
+  }
+  function generateSummary(names, up) {
+    var vals = [names.basic, names.equip, String(up || '').trim()];
+    if (vals.some(function (v) { return !v || /[<>]/.test(v); })) throw new Error('Summary needs all three values (Site Basic, Site Equipment, upgrade package)');
+    var xml = '<?xml version="1.0" encoding="UTF-8"?>\r\n' +
+      '<summary:AutoIntegrationRbsSummaryFile xmlns:summary="http://www.ericsson.se/RbsSummaryFileSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.ericsson.se/RbsSummaryFileSchemaSummaryFile.xsd">\r\n' +
+      '  <Format revision="F" />\r\n' +
+      '  <ConfigurationFiles siteBasicFilePath="' + escAttr(vals[0]) + '" siteEquipmentFilePath="' + escAttr(vals[1]) + '" upgradePackageFilePath="' + escAttr(vals[2]) + '" />\r\n' +
+      '</summary:AutoIntegrationRbsSummaryFile>\r\n';
+    var chk = lintSummary(xml);
+    if (chk.errors.length) throw new Error('Summary self-check failed: ' + chk.errors[0].msg);
+    return xml;
+  }
+  function attr(text, name) { var m = new RegExp('\\b' + name + '="([^"]*)"').exec(text); return m ? decode(m[1]) : null; }
+  function lintSummary(text, fileName) {
+    var errors = [], warnings = [];
+    function err(msg) { errors.push({ line: 0, msg: msg }); }
+    if (fileName && /[^A-Za-z0-9_.]/.test(fileName.replace(/\.xml$/i, ''))) warnings.push({ line: 0, msg: 'File name "' + fileName + '" has characters other than letters, digits and "_"' });
+    try { parseXml(text); } catch (e) { err('XML is broken: ' + e.message); }
+    if (!/<summary:AutoIntegrationRbsSummaryFile\b[^>]*xmlns:summary="http:\/\/www\.ericsson\.se\/RbsSummaryFileSchema"/.test(text)) err('Root element or summary namespace is not the expected one');
+    if (!/<Format\s+revision="F"\s*\/>/.test(text)) err('Format revision="F" element is missing');
+    var info = { kind: 'RbsSummary', paths: {} };
+    ['siteBasicFilePath', 'siteEquipmentFilePath', 'upgradePackageFilePath'].forEach(function (a) {
+      var v = attr(text, a); info.paths[a] = v;
+      if (v == null) err(a + ' is missing');
+      else if (!v.trim()) err(a + ' is empty');
+      else if (/[<>]/.test(v)) err(a + ' still has a placeholder value');
+      else if (/\s/.test(v)) err(a + ' "' + v + '" contains spaces');
+      else if (a !== 'upgradePackageFilePath' && /[^A-Za-z0-9_.\/]/.test(v)) warnings.push({ line: 0, msg: a + ' "' + v + '" has characters other than letters, digits and "_"' });
+    });
+    return { errors: errors, warnings: warnings, info: info };
   }
 
   return { generateSiteBasic: generateSiteBasic, generateSiteEquipment: generateSiteEquipment, validateConfig: validateConfig,
-    lintXml: lintXml, importFiles: importFiles, makeZip: makeZip, moshellChecks: moshellChecks, fileNames: fileNames, BB_RI_PORTS: BB_RI_PORTS, ip2n: ip2n };
+    lintXml: lintXml, lintSummary: lintSummary, generateSummary: generateSummary, summaryStatus: summaryStatus, safeName: safeName, importFiles: importFiles, makeZip: makeZip, moshellChecks: moshellChecks, fileNames: fileNames, BB_RI_PORTS: BB_RI_PORTS, ip2n: ip2n };
 })();
 if (typeof module !== 'undefined') module.exports = Core;
 
@@ -795,7 +846,7 @@ var EXAMPLES = (function () {
   }
   return {
     'Full-style': {
-      style: 'full', nodeName: 'SITE01-NL', subNetwork: 'NR', rootMo: 'ONRM_RootMo', networkMeId: 'SITE01-NL', fileTag: '',
+      style: 'full', nodeName: 'SITE01-NL', subNetwork: 'NR', rootMo: 'ONRM_RootMo', networkMeId: 'SITE01-NL', fileTag: '', upgradePackage: 'Baseband_Radio_Node-CXP2010174_2-R42L18',
       user: { name: 'rbs', password: 'rbs' },
       tn: { port: 'TN_IDL_C_1', fru: 'BB-1', mode: '1G_FULL', autoNeg: true },
       oam: { router: 'OAM', vlanPort: 'OAM', vlan: 3407, ip: '10.20.1.133', prefix: 27, gw: '10.20.1.129' },
@@ -814,7 +865,7 @@ var EXAMPLES = (function () {
       radios: radios()
     },
     'Basic-style': {
-      style: 'basic', nodeName: 'SITE02-NL', subNetwork: 'NR', rootMo: 'ONRM_RootMo', networkMeId: 'SITE02-NL', fileTag: '',
+      style: 'basic', nodeName: 'SITE02-NL', subNetwork: 'NR', rootMo: 'ONRM_RootMo', networkMeId: 'SITE02-NL', fileTag: '', upgradePackage: 'Baseband_Radio_Node-CXP2010174_2-R42L18',
       user: { name: 'rbs', password: 'rbs' },
       tn: { port: 'TN_IDL_C', fru: 'BB-1', mode: '1G_FULL', autoNeg: true },
       oam: { router: 'vr_OAM', vlanPort: 'OAM', vlan: 3251, ip: '10.20.2.196', prefix: 27, gw: '10.20.2.193' },
@@ -846,7 +897,7 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
     { id: 'site', title: 'Site & node', sub: 'Identity, ENM services, radios' },
     { id: 'net', title: 'Interfaces', sub: 'Port, VLANs and IPs' },
     { id: 'review', title: 'Review', sub: 'Check the plan before generating' },
-    { id: 'generate', title: 'Validate & generate', sub: 'Download the scripts' }
+    { id: 'generate', title: 'Validate & generate', sub: 'Scripts + RBS Summary' }
   ];
   var S = { cfg: null, label: '', step: 'start', view: 'flow', preview: 'sb', last: { ok: false }, visited: {} };
   var downloadsNs = null;
@@ -858,7 +909,7 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
 
   function blankConfig() {
     return {
-      style: 'full', nodeName: '', subNetwork: 'NR', rootMo: 'ONRM_RootMo', networkMeId: '', fileTag: '',
+      style: 'full', nodeName: '', subNetwork: 'NR', rootMo: 'ONRM_RootMo', networkMeId: '', fileTag: '', upgradePackage: '',
       user: { name: 'rbs', password: 'rbs' },
       tn: { port: 'TN_IDL_C_1', fru: 'BB-1', mode: '1G_FULL', autoNeg: true },
       oam: { router: 'OAM', vlanPort: 'OAM', vlan: '', ip: '', prefix: 27, gw: '' },
@@ -894,8 +945,9 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
         l1.errors.concat(l2.errors).forEach(function (x) { self.push({ where: 'Self-check', msg: x.msg }); });
       } catch (ex) { self.push({ where: 'Self-check', msg: 'Generator failed: ' + ex.message }); }
     }
-    var errors = v.errors.concat(self);
-    S.last = { ok: !errors.length, sb: sb, eq: eq, c: c, errors: errors, warnings: v.warnings };
+    var errors = v.errors.concat(self), names = Core.fileNames(c), sum = Core.summaryStatus(c), summary = '';
+    if (!errors.length && sum.ok) { try { summary = Core.generateSummary(names, c.upgradePackage); } catch (ex) { sum = { ok: false, missing: [ex.message] }; } }
+    S.last = { ok: !errors.length, sb: sb, eq: eq, c: c, errors: errors, warnings: v.warnings, names: names, sum: sum, summary: summary };
     return S.last;
   }
   function countFor(step, list) { return list.filter(function (x) { return stepOf(x.where) === step; }).length; }
@@ -953,7 +1005,7 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
     return head(1, 'Where do you want to start?', 'Import the files ENM generated for the site to pre-fill everything, or start with an empty form. You can come back here at any time.') +
       '<div class="panelgrid">' + cur +
       '<div class="cols-3">' +
-        '<label class="choice recommended" id="imp-drop" for="imp-file"><div class="ic">' + ICON.imp + '</div><div class="tag">Recommended</div><b>Import ENM files</b><span>Choose or drop the Site Basic and Site Equipment XML. Every value is read in and checked, so wrong VLANs or IPs show up straight away.</span><input type="file" id="imp-file" accept=".xml,.txt" multiple></label>' +
+        '<label class="choice recommended" id="imp-drop" for="imp-file"><div class="ic">' + ICON.imp + '</div><div class="tag">Recommended</div><b>Import ENM files</b><span>Choose or drop the Site Basic, Site Equipment and RBS Summary XML. Every value is read in and checked, so wrong VLANs or IPs show up straight away.</span><input type="file" id="imp-file" accept=".xml,.txt" multiple></label>' +
         '<button class="choice" type="button" id="start-blank"><div class="ic">' + ICON.blank + '</div><b>Start from scratch</b><span>Empty form with the standard router names (OAM, Traffic_LTE, NR_CP, NR_UP) and internal F1 ready. Fill in from the TRM IP plan.</span></button>' +
         '<div class="choice" style="cursor:default"><div class="ic">' + ICON.ex + '</div><b>Load an example</b><span>A complete working site to see how everything fits.</span><div class="examples">' +
           EXK.map(function (k, i) { return '<button class="btn small" type="button" data-example="' + i + '">' + escH(k) + '</button>'; }).join('') + '</div></div>' +
@@ -974,7 +1026,8 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
       '<div class="panel"><h2>Node identity</h2><p class="hint">Use the exact name from ENM. No spaces anywhere.</p><div class="fields">' +
         field('style', 'Script style', { type: 'select', options: [['full', 'Full ENM style'], ['basic', 'Basic interim style']] }) +
         field('nodeName', 'Node name (MeContext)', { ph: 'e.g. SITE-NL' }) + field('networkMeId', 'Network ME ID', { ph: 'same as node name if unsure' }) +
-        field('subNetwork', 'SubNetwork') + field('rootMo', 'Root SubNetwork') + field('fileTag', 'File name tag (optional)', { ph: 'e.g. 2026_10_29' }) +
+        field('subNetwork', 'SubNetwork') + field('rootMo', 'Root SubNetwork') + field('fileTag', 'File name tag (optional, letters/digits/_)', { ph: 'e.g. 2026_10_29' }) +
+        field('upgradePackage', 'Upgrade package (for the RBS Summary)', { wide: true, ph: 'exact name on SMRS, e.g. Baseband_Radio_Node-CXP…' }) +
         field('user.name', 'Maintenance user') + field('user.password', 'Maintenance password') +
       '</div></div>' +
       '<div class="cols-2">' +
@@ -1046,6 +1099,8 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
           '<tr><td>Node</td><td>' + escH(c.nodeName) + '</td></tr><tr><td>Network ME ID</td><td>' + escH(c.networkMeId || c.nodeName) + '</td></tr>' +
           '<tr><td>dnPrefix</td><td>SubNetwork=' + escH(c.rootMo) + ',SubNetwork=' + escH(c.subNetwork) + ',MeContext=' + escH(c.nodeName) + '</td></tr>' +
           '<tr><td>Style</td><td>' + (c.style === 'full' ? 'Full ENM' : 'Basic interim') + '</td></tr>' +
+          '<tr><td>Upgrade package</td><td>' + (c.upgradePackage ? escH(c.upgradePackage) : '<span style="color:var(--warn)">missing — needed for the RBS Summary</span>') + '</td></tr>' +
+          '<tr><td>Files</td><td>' + escH(L.names.basic) + '<br>' + escH(L.names.equip) + '<br>' + escH(L.names.summary) + '</td></tr>' +
           '<tr><td>SNMP target</td><td>' + escH(c.snmp.target) + '</td></tr><tr><td>NTP</td><td>' + escH(c.ntp.join(', ')) + '</td></tr>' +
           (c.style === 'full' ? '<tr><td>DNS</td><td>' + escH(c.dns || '—') + '</td></tr><tr><td>Security</td><td>' + (c.security.certm ? 'CertM' : 'no CertM') + ', ' + (c.security.ldap ? 'LDAP' : 'no LDAP') + '</td></tr>' : '') +
         '</tbody></table></div>' +
@@ -1055,28 +1110,31 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
       '</div></div>' + nav('net', 'generate', 'Validate & generate');
   }
   function viewGenerate() {
-    var L = S.last, names = Core.fileNames(L.c);
+    var L = S.last, names = L.names, sumOk = L.ok && L.sum.ok;
     var lock = L.ok
       ? '<div class="lock ok">' + ICON.ok + '<div><b>' + (L.warnings.length ? 'Ready, with ' + L.warnings.length + ' warning' + (L.warnings.length > 1 ? 's' : '') : 'Ready to load') + '</b><span>Inputs pass every check, and the generated XML was checked again: loopbacks are empty tags, every VLAN is unique on the port and every reference resolves.</span></div></div>'
       : '<div class="lock crit">' + ICON.lock + '<div><b>Locked: ' + L.errors.length + ' error' + (L.errors.length > 1 ? 's' : '') + ' to fix</b><span>The files unlock when every error below is fixed.</span></div></div>';
     var issues = L.errors.concat(L.warnings.map(function (x) { return { where: x.where, msg: x.msg, kind: 'w' }; }));
-    return head(5, 'Validate & generate', 'Download both files for SMRS, or copy them. Then run the MoShell checks after integration.') +
+    return head(5, 'Validate & generate', 'Download Site Basic, Site Equipment and the RBS Summary for SMRS, or copy them. Then run the MoShell checks after integration.') +
       '<div class="panelgrid">' + lock +
       (issues.length ? '<div class="panel"><h2>' + (L.ok ? 'Warnings' : 'Errors') + '</h2>' + issueList(issues, true) + '</div>' : '') +
       '<div class="cols-2">' +
-        '<div class="panel"><h2>Files</h2><div class="files">' + escH(names.basic) + '<br>' + escH(names.equip) + '</div>' +
-          '<div class="actions" style="margin-top:10px"><button class="btn primary" id="dl"' + (L.ok ? '' : ' disabled') + '>' + ICON.dl + 'Download both (.zip)</button>' +
-          '<button class="btn" id="cp-sb"' + (L.ok ? '' : ' disabled') + '>Copy Site Basic</button><button class="btn" id="cp-eq"' + (L.ok ? '' : ' disabled') + '>Copy Site Equipment</button></div>' +
+        '<div class="panel"><h2>Files</h2><div class="files">' + escH(names.basic) + '<br>' + escH(names.equip) + '<br>' +
+            (sumOk ? escH(names.summary) : '<span style="color:var(--muted);text-decoration:line-through">' + escH(names.summary) + '</span>') + '</div>' +
+          (L.ok && !L.sum.ok ? '<ul class="issues" style="margin-top:8px">' + L.sum.missing.map(function (m) { return '<li class="w"><span class="where">RBS Summary not created:</span>' + escH(m) + ' <button class="go" data-goto="site">Add in Site &amp; node</button></li>'; }).join('') + '</ul>' : '') +
+          '<div class="actions" style="margin-top:10px"><button class="btn primary" id="dl"' + (L.ok ? '' : ' disabled') + '>' + ICON.dl + (sumOk ? 'Download all 3 (.zip)' : 'Download both (.zip)') + '</button>' +
+          '<button class="btn" id="cp-sb"' + (L.ok ? '' : ' disabled') + '>Copy Site Basic</button><button class="btn" id="cp-eq"' + (L.ok ? '' : ' disabled') + '>Copy Site Equipment</button>' +
+          '<button class="btn" id="cp-sum"' + (sumOk ? '' : ' disabled') + '>Copy Summary</button></div>' +
           '<div class="toast" id="toast" role="status" aria-live="polite"></div>' +
-          '<p class="hint" style="margin:4px 0 0">The RBS Summary file in ENM points to these exact file names. If you change the node name or tag, update the summary too.</p></div>' +
+          '<p class="hint" style="margin:4px 0 0">File names use only letters, digits and _. The RBS Summary points to these exact names, so put all three on SMRS together and select the summary file in AutoIntegration.</p></div>' +
         '<div class="panel"><h2>MoShell checks after integration</h2><pre id="moshell">' + escH(Core.moshellChecks(L.c).join('\n')) + '</pre><div class="actions" style="margin-top:8px"><button class="btn small" id="cp-mos">Copy commands</button></div></div>' +
       '</div>' +
-      '<div class="panel"><h2>Preview</h2><div class="ptabs"><button class="btn small" id="pv-sb" aria-pressed="' + (S.preview === 'sb') + '">Site Basic</button><button class="btn small" id="pv-eq" aria-pressed="' + (S.preview === 'eq') + '">Site Equipment</button></div>' +
-        '<pre id="preview">' + escH(L.ok ? (S.preview === 'sb' ? L.sb : L.eq).replace(/\r\n/g, '\n') : 'Preview appears when there are no errors.') + '</pre></div>' +
+      '<div class="panel"><h2>Preview</h2><div class="ptabs"><button class="btn small" id="pv-sb" aria-pressed="' + (S.preview === 'sb') + '">Site Basic</button><button class="btn small" id="pv-eq" aria-pressed="' + (S.preview === 'eq') + '">Site Equipment</button><button class="btn small" id="pv-sum" aria-pressed="' + (S.preview === 'sum') + '">RBS Summary</button></div>' +
+        '<pre id="preview">' + escH(!L.ok ? 'Preview appears when there are no errors.' : S.preview === 'sum' ? (L.summary ? L.summary.replace(/\r\n/g, '\n') : 'The summary is created once the upgrade package is entered.\n\n' + L.sum.missing.join('\n')) : (S.preview === 'sb' ? L.sb : L.eq).replace(/\r\n/g, '\n')) + '</pre></div>' +
       '</div>' + nav('review', null);
   }
   function viewCheck() {
-    return '<div class="stephead"><div><div class="eyebrow">Tool</div><h1>Check a script file</h1><p>Drop any Site Basic or Site Equipment XML, for example the one ENM generated, and see what the node would reject before you go to site.</p></div></div>' +
+    return '<div class="stephead"><div><div class="eyebrow">Tool</div><h1>Check a script file</h1><p>Drop any Site Basic, Site Equipment or RBS Summary XML, for example the ones ENM generated, and see what the node would reject before you go to site.</p></div></div>' +
       '<div class="panelgrid"><div class="drop" id="drop"><div><b>Drop XML files here</b></div><div class="hint">Checked in your browser. Nothing is uploaded.</div><label class="btn primary" for="chk-file">Choose files…</label><input type="file" id="chk-file" accept=".xml,.txt" multiple></div>' +
       '<div class="panelgrid" id="results"></div>' +
       '<div class="panel"><h2>What it checks</h2><ul class="rules">' +
@@ -1084,7 +1142,8 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
         '<li>No VLAN used twice on the same Ethernet port; VLAN 1–4094; one interface per VlanPort</li>' +
         '<li>Valid IPs, no duplicate IPs, overlapping subnets, next hop inside the router\'s subnet</li>' +
         '<li>Every reference (encapsulation, accessPoint, RF/RI ports, branches) points to an MO in the file</li>' +
-        '<li>No spaces in MO ids or the file name; RI ports used once; fingerprint matches MeContext</li></ul></div></div>';
+        '<li>No spaces in MO ids or the file name; RI ports used once; fingerprint matches MeContext</li>' +
+        '<li>RBS Summary: correct root, namespace and Format revision F; all three paths present and non-empty; paths match the files dropped with it</li></ul></div></div>';
   }
 
   /* ---------- render ---------- */
@@ -1165,7 +1224,8 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
     if (b.id === 'cp-sb' && S.last.ok) { copy(S.last.sb, 'Site Basic'); return; }
     if (b.id === 'cp-eq' && S.last.ok) { copy(S.last.eq, 'Site Equipment'); return; }
     if (b.id === 'cp-mos') { copy($('moshell').textContent, 'MoShell commands'); return; }
-    if (b.id === 'pv-sb' || b.id === 'pv-eq') { S.preview = b.id === 'pv-sb' ? 'sb' : 'eq'; render(true); }
+    if (b.id === 'cp-sum' && S.last.summary) { copy(S.last.summary, 'RBS Summary'); return; }
+    if (b.id === 'pv-sb' || b.id === 'pv-eq' || b.id === 'pv-sum') { S.preview = b.id.slice(3); render(true); }
   });
   function onField(e) {
     var el = e.target, path = el.dataset && el.dataset.path; if (!path) return;
@@ -1201,13 +1261,21 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
     load(r.cfg, 'imported from ' + fs.map(function (f) { return f.name; }).join(', '), 'review');
   }
   function check(fs) {
+    var names = fs.map(function (f) { return f.name; });
     $('results').innerHTML = fs.map(function (f) {
-      var r = Core.lintXml(f.text, f.name), cls = r.errors.length ? 'crit' : (r.warnings.length ? 'warn' : 'ok');
+      var r = Core.lintXml(f.text, f.name);
+      if (r.info.kind === 'RbsSummary' && fs.length > 1) {
+        ['siteBasicFilePath', 'siteEquipmentFilePath'].forEach(function (a) {
+          var v = r.info.paths[a]; if (v && names.indexOf(v.split('/').pop()) < 0) r.warnings.push({ line: 0, msg: a + ' points to "' + v + '", which is not one of the files you dropped here — check the name on SMRS' });
+        });
+      }
+      var cls = r.errors.length ? 'crit' : (r.warnings.length ? 'warn' : 'ok');
       var label = r.errors.length ? r.errors.length + ' error' + (r.errors.length > 1 ? 's' : '') : (r.warnings.length ? 'Loads, with warnings' : 'No problems found');
       var li = r.errors.map(function (x) { return '<li class="e"><span class="where">' + (x.line ? 'Line ' + x.line : 'File') + ':</span>' + escH(x.msg) + '</li>'; })
         .concat(r.warnings.map(function (x) { return '<li class="w"><span class="where">' + (x.line ? 'Line ' + x.line : 'File') + ':</span>' + escH(x.msg) + '</li>'; }));
       return '<div class="panel"><h2><span class="pill ' + cls + '">' + label + '</span><span class="files">' + escH(f.name) + '</span></h2>' +
-        '<div class="kv" style="margin:6px 0 10px">Type <b>' + escH(r.info.kind) + '</b> · Node <b>' + escH(r.info.node || '?') + '</b> · MOs <b>' + r.info.moCount + '</b></div>' +
+        (r.info.kind === 'RbsSummary' ? '<div class="kv" style="margin:6px 0 10px">Type <b>RBS Summary</b> · Site Basic <b>' + escH(r.info.paths.siteBasicFilePath || '?') + '</b> · Site Equipment <b>' + escH(r.info.paths.siteEquipmentFilePath || '?') + '</b> · Package <b>' + escH(r.info.paths.upgradePackageFilePath || '?') + '</b></div>'
+          : '<div class="kv" style="margin:6px 0 10px">Type <b>' + escH(r.info.kind) + '</b> · Node <b>' + escH(r.info.node || '?') + '</b> · MOs <b>' + r.info.moCount + '</b></div>') +
         (li.length ? '<ul class="issues">' + li.join('') + '</ul>' : '') + '</div>';
     }).join('');
   }
@@ -1223,9 +1291,10 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
   }
   function download() {
     if (!S.last.ok) return;
-    var names = Core.fileNames(S.last.c);
-    var zip = Core.makeZip([{ name: names.basic, data: S.last.sb }, { name: names.equip, data: S.last.eq }]);
-    var zname = S.last.c.nodeName + '_site_scripts.zip', blob = new Blob([zip], { type: 'application/zip' });
+    var names = S.last.names, files = [{ name: names.basic, data: S.last.sb }, { name: names.equip, data: S.last.eq }];
+    if (S.last.summary) files.push({ name: names.summary, data: S.last.summary });
+    var zip = Core.makeZip(files);
+    var zname = Core.safeName(S.last.c.nodeName) + '_site_scripts.zip', blob = new Blob([zip], { type: 'application/zip' });
     if (downloadsNs) {
       downloadsNs.save({ filename: zname, data: blob }).then(function () { toast('Saved ' + zname); }, function (e) {
         toast(e && e.code === 'declined' ? 'Download cancelled' : 'Download not available here. Use the Copy buttons.', true);
