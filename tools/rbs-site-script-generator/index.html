@@ -178,6 +178,30 @@ pre { margin: 0; background: var(--panel-2); border: 1px solid var(--line); bord
   .cols-2, .cols-3 { grid-template-columns: 1fr; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+.modes { display: flex; gap: 4px; background: rgba(255,255,255,.06); padding: 3px; border-radius: 8px; }
+.modes button { border: 0; background: none; color: var(--rail-muted); font-weight: 500; font-size: 13.5px; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+.modes button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.app.no-rail { grid-template-columns: 1fr; }
+.app.no-rail .rail, .app.no-rail .adv-only { display: none; }
+.qstep { display: flex; gap: 12px; align-items: baseline; margin: 0 0 6px; }
+.qnum { width: 26px; height: 26px; flex: none; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font: 600 13px/1 var(--font-mono); transform: translateY(5px); }
+.qstep h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.qgrid { border-collapse: separate; border-spacing: 0; font-size: 12.5px; min-width: 1400px; }
+.qgrid th { position: sticky; top: 0; background: var(--panel); font-size: 11.5px; padding: 4px 3px; text-align: center; border-bottom: 0; }
+.qgrid thead tr:first-child th { font: 600 11px/1.2 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; padding: 6px 3px; }
+.qgrid .g-4g { background: #fbe9dc; color: #7a3d0c; } .qgrid .g-cp { background: #e2ebf6; color: #1f3d66; } .qgrid .g-up { background: #c9dbf4; color: #173764; } .qgrid .g-oam { background: #f3e0e3; color: #6d2532; } .qgrid .g-rad { background: #e3f1e6; color: #1d5130; }
+:root[data-theme="dark"] .qgrid .g-4g, :root[data-theme="dark"] .qgrid .g-cp, :root[data-theme="dark"] .qgrid .g-up, :root[data-theme="dark"] .qgrid .g-oam, :root[data-theme="dark"] .qgrid .g-rad { background: var(--panel-2); color: var(--ink); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .qgrid .g-4g, :root:not([data-theme="light"]) .qgrid .g-cp, :root:not([data-theme="light"]) .qgrid .g-up, :root:not([data-theme="light"]) .qgrid .g-oam, :root:not([data-theme="light"]) .qgrid .g-rad { background: var(--panel-2); color: var(--ink); } }
+.qgrid td { padding: 2px; border-bottom: 1px solid var(--line); }
+.qgrid td input { padding: 5px 4px; font-size: 12px; min-width: 0; }
+.qgrid .w-site { width: 92px; } .qgrid .w-ip { width: 132px; } .qgrid .w-vl { width: 58px; } .qgrid .w-n { width: 46px; } .qgrid .w-st { width: 118px; }
+.qgrid tr.qdetail td { border-bottom: 1px solid var(--line); padding: 4px 6px 10px; }
+.stbtn { font: 600 12px/1 var(--font-body); padding: 6px 8px; border-radius: 99px; border: 0; cursor: pointer; white-space: nowrap; }
+.stbtn.ok { background: var(--ok-soft); color: var(--ok); } .stbtn.crit { background: var(--crit-soft); color: var(--crit); } .stbtn.idle { background: var(--panel-2); color: var(--muted); }
+details.settings { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 18px; }
+details.settings summary { cursor: pointer; font-weight: 600; }
+details.settings[open] summary { margin-bottom: 10px; }
+.bigbtn { font-size: 15px; padding: 12px 20px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -185,8 +209,13 @@ pre { margin: 0; background: var(--panel-2); border: 1px solid var(--line); bord
 <div class="app">
   <header class="topbar">
     <div class="brand"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M7.5 7.5l2 2M16.5 7.5l-2 2M12 11l-5 10h10z"/></svg></span>RBS Site Script Generator</div>
+    <nav class="modes" aria-label="Mode">
+      <button id="m-quick" aria-pressed="true">Quick (TRM sheet)</button>
+      <button id="m-check" aria-pressed="false">Check a file</button>
+      <button id="m-adv" aria-pressed="false">Advanced</button>
+    </nav>
     <div class="spacer"></div>
-    <div class="chipline">
+    <div class="chipline adv-only">
       <span class="tchip">Node <b id="tc-node">—</b></span>
       <span class="tchip">Style <b id="tc-style">—</b></span>
       <span class="tchip">Sectors <b id="tc-radios">0</b></span>
@@ -1439,6 +1468,164 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
         '<li>RBS Summary: correct root, namespace and Format revision F; all three paths present and non-empty; paths match the files dropped with it</li></ul></div></div>';
   }
 
+  /* ---------- QUICK MODE: paste the TRM sheet, set radios, download ---------- */
+  var QKEY = 'rbs-sitegen-quick-v1';
+  var QF = ['site', 'lteIp', 'lteNh', 'lteVlan', 'cpIp', 'cpNh', 'cpVlan', 'upIp', 'upNh', 'upVlan', 'oamIp', 'oamNh', 'oamVlan', 'r4', 'r2', 'air'];
+  var Q = null, QR = [];
+  function qDefaults() { return { rows: [], settings: { suffix: '-NL', prefix: 27, upgradePackage: (EXAMPLES[EXK[0]].upgradePackage || ''), base: EXK[0] } }; }
+  function qLoad() { try { Q = JSON.parse(localStorage.getItem(QKEY) || 'null'); } catch (e) { Q = null; } if (!Q || !Q.rows) Q = qDefaults(); }
+  function qSave() { try { localStorage.setItem(QKEY, JSON.stringify(Q)); } catch (e) {} }
+  function qBlank(site) { return { site: site || '', lteIp: '', lteNh: '', lteVlan: '', cpIp: '', cpNh: '', cpVlan: '', upIp: '', upNh: '', upVlan: '', oamIp: '', oamNh: '', oamVlan: '', r4: 3, r2: 0, air: 3 }; }
+  var IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
+  function qParse(text) {
+    var added = 0, skipped = [];
+    text.split(/\r?\n/).forEach(function (line) {
+      var t = line.trim().split(/[\s,;|]+/).filter(Boolean); if (!t.length) return;
+      var ipIdx = t.findIndex(function (x) { return IPV4.test(x); });
+      if (ipIdx < 1) { if (t.some(function (x) { return IPV4.test(x); })) skipped.push(line.trim()); return; }
+      var site = t.slice(0, ipIdx).join('_'), v = t.slice(ipIdx);
+      var pat = [1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0];
+      var ok = v.length >= 12 && pat.every(function (isIp, i) { return isIp ? IPV4.test(v[i]) : /^\d+$/.test(v[i]); });
+      if (!ok) { skipped.push(line.trim()); return; }
+      var r = qBlank(site.toUpperCase());
+      ['lteIp', 'lteNh', 'lteVlan', 'cpIp', 'cpNh', 'cpVlan', 'upIp', 'upNh', 'upVlan', 'oamIp', 'oamNh', 'oamVlan'].forEach(function (k, i) { r[k] = v[i]; });
+      if (/^\d+$/.test(v[12] || '')) r.r4 = +v[12]; if (/^\d+$/.test(v[13] || '')) r.r2 = +v[13]; if (/^\d+$/.test(v[14] || '')) r.air = +v[14];
+      var ex = Q.rows.findIndex(function (x) { return x.site === r.site; });
+      if (ex >= 0) { r.r4 = Q.rows[ex].r4; r.r2 = Q.rows[ex].r2; r.air = Q.rows[ex].air; Q.rows[ex] = r; } else Q.rows.push(r);
+      added++;
+    });
+    return { added: added, skipped: skipped };
+  }
+  function qCfg(r) {
+    var c = clone(EXAMPLES[Q.settings.base] || EXAMPLES[EXK[0]]), P = String(Q.settings.prefix).trim(), sfx = String(Q.settings.suffix || '').trim();
+    function t(x) { return String(x == null ? '' : x).trim(); }
+    c.nodeName = t(r.site) + sfx; c.networkMeId = c.nodeName; c.fileTag = ''; c.upgradePackage = t(Q.settings.upgradePackage);
+    c.oam = { router: c.oam.router || 'OAM', vlanPort: c.oam.vlanPort || 'OAM', vlan: t(r.oamVlan), ip: t(r.oamIp), prefix: P, gw: t(r.oamNh) };
+    c.traffic = [
+      { router: 'Traffic_LTE', vlanPort: 'S1', vlan: t(r.lteVlan), ip: t(r.lteIp), prefix: P, gw: t(r.lteNh) },
+      { router: 'NR_CP', vlanPort: 'NR_CP', vlan: t(r.cpVlan), ip: t(r.cpIp), prefix: P, gw: t(r.cpNh) },
+      { router: 'NR_UP', vlanPort: 'NR_UP', vlan: t(r.upVlan), ip: t(r.upIp), prefix: P, gw: t(r.upNh) }
+    ];
+    // radio layout: 4T4R RRUs first (BB ports A..), then AIR (N, P, Q..), then 2T2R RRUs on the next free ports
+    var n4 = +r.r4 || 0, n2 = +r.r2 || 0, na = +r.air || 0, rruPorts = ['A','B','C','D','E','F','G','H','J','K','L','M'], airPorts = ['N','P','Q','R','S','T'], sec = 1;
+    c.radios = [];
+    for (var i = 0; i < n4; i++, sec++) c.radios.push({ type: 'RRU', sector: 'S' + sec, fru: 'RRU-S' + sec, branches: 4, riPort: rruPorts[i] || '?' });
+    for (i = 0; i < na; i++, sec++) c.radios.push({ type: 'AIR', sector: 'S' + sec, fru: 'AIR-' + (i + 1), branches: '', riPort: airPorts[i] || '?' });
+    for (i = 0; i < n2; i++, sec++) c.radios.push({ type: 'RRU', sector: 'S' + sec, fru: 'RRU-S' + sec, branches: 2, riPort: rruPorts[n4 + i] || '?' });
+    return c;
+  }
+  var QLABEL = { 'OAM': 'OAM', 'Traffic #1 (Traffic_LTE)': '4G', 'Traffic #2 (NR_CP)': '5G CP', 'Traffic #3 (NR_UP)': '5G UP' };
+  function qEvaluate() {
+    var ipOwner = {}, names = {};
+    QR = Q.rows.map(function (r) {
+      var c = qCfg(r), v = Core.validateConfig(c), out = null;
+      function nice(t) { Object.keys(QLABEL).forEach(function (k) { t = t.split(k).join(QLABEL[k]); }); return t; }
+      var errs = v.errors.map(function (e) { return nice((QLABEL[e.where] || e.where) + ': ' + e.msg); });
+      if (!r.site) errs.unshift('Site ID is empty');
+      if ((+r.r4 || 0) + (+r.r2 || 0) > 12) errs.push('Radios: at most 12 RRUs per baseband (ports A–H, J–M)');
+      if ((+r.air || 0) > 6) errs.push('Radios: at most 6 AIR units (ports N, P–T)');
+      if (names[c.nodeName]) errs.push('Site ' + r.site + ' is listed twice'); names[c.nodeName] = 1;
+      [r.lteIp, r.cpIp, r.upIp, r.oamIp].forEach(function (ip) { ip = String(ip || '').trim(); if (!ip) return; if (ipOwner[ip] && ipOwner[ip] !== r.site) errs.push('IP ' + ip + ' is also used by site ' + ipOwner[ip]); ipOwner[ip] = r.site; });
+      if (!errs.length) {
+        try {
+          var n = Core.fileNames(c), sb = Core.generateSiteBasic(c), eq = Core.generateSiteEquipment(c);
+          Core.lintXml(sb).errors.concat(Core.lintXml(eq).errors).forEach(function (x) { errs.push('Self-check: ' + x.msg); });
+          var sum = '', sumNote = '';
+          if (c.upgradePackage) sum = Core.generateSummary(n, c.upgradePackage); else sumNote = 'no upgrade package, so no RBS Summary';
+          out = { names: n, sb: sb, eq: eq, sum: sum, sumNote: sumNote, node: c.nodeName, radios: c.radios };
+        } catch (ex) { errs.push('Generator: ' + ex.message); }
+      }
+      return { errs: errs.filter(function (x, i, a) { return a.indexOf(x) === i; }), warns: v.warnings.map(function (w) { return nice((QLABEL[w.where] || w.where) + ': ' + w.msg); }), out: errs.length ? null : out };
+    });
+    // a site whose IP clashes with a later one is also blocked
+    QR.forEach(function (x, i) { if (x.errs.length) x.out = null; });
+  }
+  function qCell(i, f, cls, ph) { return '<td class="' + cls + '"><input id="q-' + i + '-' + f + '" data-q="' + i + '.' + f + '" value="' + escH(Q.rows[i][f]) + '" aria-label="' + f + ' row ' + (i + 1) + '" spellcheck="false" autocomplete="off"' + (ph ? ' placeholder="' + ph + '"' : '') + '></td>'; }
+  function qStatusHtml(i) {
+    var x = QR[i]; if (!x) return '';
+    if (!Q.rows[i].site && !Q.rows[i].oamIp) return '<span class="stbtn idle">Empty</span>';
+    return x.errs.length ? '<button class="stbtn crit" data-qdetail="' + i + '">' + x.errs.length + ' problem' + (x.errs.length > 1 ? 's' : '') + ' ▾</button>'
+      : '<button class="stbtn ok" data-qdetail="' + i + '">✓ Ready' + (x.warns.length ? ' · ' + x.warns.length + ' note' : '') + '</button>';
+  }
+  function qDetailHtml(i) {
+    var x = QR[i], o = x.out;
+    var list = x.errs.map(function (e) { return '<li class="e">' + escH(e) + '</li>'; }).concat(x.warns.map(function (w) { return '<li class="w">' + escH(w) + '</li>'; }));
+    var radios = o ? '<div class="kv" style="margin-top:6px">Radios: ' + o.radios.map(function (r) { return '<b>' + escH(r.sector) + '</b> ' + escH(r.type === 'RRU' ? r.branches + 'T' + r.branches + 'R' : 'AIR') + '→' + escH(r.riPort); }).join(' · ') + '</div>' +
+      '<div class="kv">Files: <b>' + escH(o.names.basic) + '</b>, <b>' + escH(o.names.equip) + '</b>' + (o.sum ? ', <b>' + escH(o.names.summary) + '</b>' : ' (' + escH(o.sumNote) + ')') + '</div>' : '';
+    return (list.length ? '<ul class="issues">' + list.join('') + '</ul>' : '') + radios;
+  }
+  function viewQuick() {
+    var rows = Q.rows.map(function (r, i) {
+      return '<tr>' + qCell(i, 'site', 'w-site', 'SITE') +
+        qCell(i, 'lteIp', 'w-ip') + qCell(i, 'lteNh', 'w-ip') + qCell(i, 'lteVlan', 'w-vl') +
+        qCell(i, 'cpIp', 'w-ip') + qCell(i, 'cpNh', 'w-ip') + qCell(i, 'cpVlan', 'w-vl') +
+        qCell(i, 'upIp', 'w-ip') + qCell(i, 'upNh', 'w-ip') + qCell(i, 'upVlan', 'w-vl') +
+        qCell(i, 'oamIp', 'w-ip') + qCell(i, 'oamNh', 'w-ip') + qCell(i, 'oamVlan', 'w-vl') +
+        qCell(i, 'r4', 'w-n') + qCell(i, 'r2', 'w-n') + qCell(i, 'air', 'w-n') +
+        '<td class="w-st" id="qst-' + i + '">' + qStatusHtml(i) + '</td>' +
+        '<td><button class="btn icon" data-qdel="' + i + '" aria-label="Remove ' + escH(r.site || 'row') + '">✕</button></td></tr>' +
+        '<tr class="qdetail" id="qd-' + i + '" hidden><td colspan="18" id="qdc-' + i + '"></td></tr>';
+    }).join('');
+    var st = Q.settings, base = EXAMPLES[st.base] || EXAMPLES[EXK[0]];
+    return '<div class="stephead"><div><h1>Generate site scripts from the TRM sheet</h1><p>Paste the rows, check the radios, download. Each site gets Site Basic, Site Equipment and the RBS Summary, and nothing downloads until it passes every check.</p></div></div>' +
+      '<div class="panelgrid" style="max-width:none">' +
+      '<div class="panel"><div class="qstep"><span class="qnum">1</span><h2>Paste the TRM rows</h2></div>' +
+        '<p class="hint" style="margin-left:38px">Copy the rows straight from the Excel sheet: Site ID, then 4G IP / NH / VLAN, 5G CP IP / NH / VLAN, 5G UP IP / NH / VLAN, OAM IP / NH / VLAN. The header row is skipped automatically.</p>' +
+        '<div style="margin-left:38px;display:grid;gap:8px"><textarea id="q-paste" rows="4" spellcheck="false" placeholder="SITE01\t10.30.1.37\t10.30.1.33\t2962\t10.20.9.228\t10.20.9.225\t3957\t10.30.9.228\t10.30.9.225\t3956\t10.20.1.37\t10.20.1.33\t2963"></textarea>' +
+        '<div class="actions"><button class="btn primary" id="q-add">Add these sites</button><button class="btn" id="q-addrow">Add an empty row</button>' + (Q.rows.length ? '<button class="btn" id="q-clear">Clear the table</button>' : '') + '</div><div class="hint" id="q-msg"></div></div></div>' +
+      '<div class="panel"><div class="qstep"><span class="qnum">2</span><h2>Check each site and its radios</h2></div>' +
+        '<p class="hint" style="margin-left:38px">Fix anything marked in red. Under <b>Radios</b>, enter how many 4T4R RRUs, 2T2R RRUs and AIR units the site has (default 3 / 0 / 3). Click a status to see the details.</p>' +
+        (Q.rows.length ? '<div class="tbl-wrap"><table class="qgrid"><thead>' +
+          '<tr><th rowspan="2" style="vertical-align:bottom">Site ID</th><th colspan="3" class="g-4g">4G</th><th colspan="3" class="g-cp">5G CP</th><th colspan="3" class="g-up">5G UP</th><th colspan="3" class="g-oam">OAM</th><th colspan="3" class="g-rad">Radios</th><th rowspan="2" style="vertical-align:bottom">Status</th><th rowspan="2"></th></tr>' +
+          '<tr><th class="g-4g">IP</th><th class="g-4g">NH</th><th class="g-4g">VLAN</th><th class="g-cp">IP</th><th class="g-cp">NH</th><th class="g-cp">VLAN</th><th class="g-up">IP</th><th class="g-up">NH</th><th class="g-up">VLAN</th><th class="g-oam">IP</th><th class="g-oam">NH</th><th class="g-oam">VLAN</th><th class="g-rad">4T4R</th><th class="g-rad">2T2R</th><th class="g-rad">AIR</th></tr>' +
+          '</thead><tbody>' + rows + '</tbody></table></div>' : '<p class="hint" style="margin-left:38px">No sites yet. Paste rows in step 1.</p>') + '</div>' +
+      '<div class="panel"><div class="qstep"><span class="qnum">3</span><h2>Download</h2></div><div style="margin-left:38px;display:grid;gap:8px">' +
+        '<div id="q-sum" class="kv"></div><div class="actions"><button class="btn primary bigbtn" id="q-dl">' + ICON.dl + 'Download</button></div><div class="toast" id="toast" role="status" aria-live="polite"></div></div></div>' +
+      '<details class="settings"><summary>Project settings (same for every site)</summary><div class="fields">' +
+        '<label class="f" for="qs-suffix">Node name ending<input id="qs-suffix" data-qs="suffix" value="' + escH(st.suffix) + '" placeholder="-NL"></label>' +
+        '<label class="f" for="qs-prefix">Subnet mask (prefix)<input id="qs-prefix" data-qs="prefix" value="' + escH(st.prefix) + '"></label>' +
+        '<label class="f wide" for="qs-up">Upgrade package (for the RBS Summary)<input id="qs-up" data-qs="upgradePackage" value="' + escH(st.upgradePackage) + '"></label>' +
+        '<label class="f" for="qs-base">Copy ENM settings from<select id="qs-base" data-qs="base">' + EXK.map(function (k) { return '<option' + (k === st.base ? ' selected' : '') + '>' + escH(k) + '</option>'; }).join('') + '</select></label>' +
+      '</div><p class="hint" style="margin:10px 0 0">Copied from ' + escH(st.base) + ': SNMP ' + escH(base.snmp.target) + ', NTP ' + escH(base.ntp.join(', ')) + (base.dns ? ', DNS ' + escH(base.dns) : '') + ', port ' + escH(base.tn.port) + (base.style === 'full' ? ', certificate and LDAP settings' : '') + '. Routers: ' + escH(base.oam.router) + ', Traffic_LTE, NR_CP, NR_UP. To change any of these, or for a project with a different layout, use <b>Advanced</b>.</p></details>' +
+      '</div>';
+  }
+  function qRefreshStatus() {
+    qEvaluate();
+    QR.forEach(function (x, i) {
+      var c = $('qst-' + i); if (c) c.innerHTML = qStatusHtml(i);
+      var d = $('qdc-' + i); if (d && !$('qd-' + i).hidden) d.innerHTML = qDetailHtml(i);
+      ['lteIp','lteNh','lteVlan','cpIp','cpNh','cpVlan','upIp','upNh','upVlan','oamIp','oamNh','oamVlan','site'].forEach(function (f) {
+        var el = $('q-' + i + '-' + f); if (!el) return;
+        var v = String(Q.rows[i][f] || '').trim(), bad = false;
+        if (/Vlan$/.test(f)) bad = !!v && (!/^\d+$/.test(v) || +v < 1 || +v > 4094 || x.errs.some(function (e) { return e.indexOf('VLAN ' + v + ' is already') >= 0; }));
+        else if (f !== 'site') bad = !!v && (!IPV4.test(v) || x.errs.some(function (e) { return e.indexOf(' ' + v + ' ') >= 0 || e.indexOf('"' + v + '"') >= 0; }));
+        else bad = !v || /[^A-Za-z0-9_-]/.test(v);
+        if (!v && f !== 'site' && Q.rows[i].site) bad = true;
+        el.setAttribute('aria-invalid', bad ? 'true' : 'false');
+      });
+    });
+    var ready = QR.filter(function (x) { return x.out; }).length, blocked = QR.length - ready, btn = $('q-dl');
+    if (btn) {
+      btn.disabled = !ready;
+      btn.lastChild.textContent = ready ? 'Download ' + ready + ' site' + (ready > 1 ? 's' : '') + ' (.zip)' : 'Download';
+      $('q-sum').innerHTML = !QR.length ? 'Add sites first.' : '<b>' + ready + '</b> of ' + QR.length + ' site' + (QR.length > 1 ? 's' : '') + ' ready.' + (blocked ? ' <span style="color:var(--crit)">' + blocked + ' site' + (blocked > 1 ? 's have' : ' has') + ' problems and won\'t be included until fixed.</span>' : '') +
+        (ready && !Q.settings.upgradePackage ? ' <span style="color:var(--warn)">No upgrade package in Project settings, so the RBS Summary is left out.</span>' : '') + ' One folder per site.';
+    }
+    qSave();
+  }
+  function qDownload() {
+    var files = [];
+    QR.forEach(function (x) { if (!x.out) return; var o = x.out; files.push({ name: o.node + '/' + o.names.basic, data: o.sb }, { name: o.node + '/' + o.names.equip, data: o.eq }); if (o.sum) files.push({ name: o.node + '/' + o.names.summary, data: o.sum }); });
+    if (!files.length) return;
+    var ready = QR.filter(function (x) { return x.out; }), zname = ready.length === 1 ? Core.safeName(ready[0].out.node) + '_site_scripts.zip' : 'site_scripts_' + ready.length + '_sites.zip';
+    saveZip(zname, Core.makeZip(files));
+  }
+  function setMode(m) {
+    S.view = m === 'adv' ? 'flow' : m;
+    document.querySelector('.app').classList.toggle('no-rail', m !== 'adv');
+    $('m-quick').setAttribute('aria-pressed', String(m === 'quick')); $('m-check').setAttribute('aria-pressed', String(m === 'check')); $('m-adv').setAttribute('aria-pressed', String(m === 'adv'));
+  }
+
   /* ---------- render ---------- */
   function renderRail() {
     var L = S.last;
@@ -1470,6 +1657,7 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
   function render(keepFocus) {
     evaluate();
     var w = $('work');
+    if (S.view === 'quick') { w.innerHTML = viewQuick(); qRefreshStatus(); if (!keepFocus) window.scrollTo(0, 0); return; }
     if (S.view === 'check') w.innerHTML = viewCheck();
     else w.innerHTML = { start: viewStart, site: viewSite, net: viewNet, review: viewReview, generate: viewGenerate }[S.step]();
     renderRail(); markInvalid(); save();
@@ -1499,7 +1687,7 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
     });
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify({ cfg: S.cfg, label: S.label, step: S.step, visited: S.visited })); } catch (e) {} }
-  function go(step) { S.view = 'flow'; S.step = step; S.visited[step] = true; try { history.replaceState(null, '', '#' + step); } catch (e) {} render(); }
+  function go(step) { if (S.view !== 'flow') setMode('adv'); S.view = 'flow'; S.step = step; S.visited[step] = true; try { history.replaceState(null, '', '#' + step); } catch (e) {} render(); }
   function load(c, label, step) { S.cfg = clone(c); S.label = label; S.visited = {}; if (label.indexOf('imported') !== 0) S.importNote = ''; go(step || 'site'); }
 
   /* ---------- events ---------- */
@@ -1507,8 +1695,23 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
   function freeRi() { var used = S.cfg.radios.map(function (r) { return r.riPort; }); return Core.BB_RI_PORTS.filter(function (p) { return used.indexOf(p) < 0; })[0] || 'A'; }
   document.addEventListener('click', function (e) {
     var b = e.target.closest('button'); if (!b) return;
-    if (b.dataset.goto) { go(b.dataset.goto); return; }
-    if (b.id === 'nav-check') { S.view = 'check'; try { history.replaceState(null, '', '#check'); } catch (x) {} render(); return; }
+    if (b.id === 'm-quick') { setMode('quick'); try { history.replaceState(null, '', '#quick'); } catch (x) {} render(); return; }
+    if (b.id === 'm-check') { setMode('check'); try { history.replaceState(null, '', '#check'); } catch (x) {} render(); return; }
+    if (b.id === 'm-adv') { setMode('adv'); go(S.step || 'start'); return; }
+    if (b.id === 'q-add') {
+      var res = qParse($('q-paste').value);
+      render(true);
+      $('q-msg').innerHTML = res.added ? '<span style="color:var(--ok)">Added ' + res.added + ' site' + (res.added > 1 ? 's' : '') + '.</span>' : '<span style="color:var(--crit)">No site rows found. Each row needs the Site ID followed by 12 values (IP, NH, VLAN × 4).</span>';
+      if (res.skipped.length) $('q-msg').innerHTML += ' <span style="color:var(--warn)">Skipped ' + res.skipped.length + ' line(s) that didn\'t have all 12 values: ' + escH(res.skipped.slice(0, 2).join(' | ').slice(0, 160)) + '</span>';
+      return;
+    }
+    if (b.id === 'q-addrow') { Q.rows.push(qBlank()); render(true); return; }
+    if (b.id === 'q-clear') { Q.rows = []; render(true); return; }
+    if (b.dataset.qdel !== undefined) { Q.rows.splice(+b.dataset.qdel, 1); render(true); return; }
+    if (b.dataset.qdetail !== undefined) { var i = +b.dataset.qdetail, d = $('qd-' + i); d.hidden = !d.hidden; if (!d.hidden) $('qdc-' + i).innerHTML = qDetailHtml(i); return; }
+    if (b.id === 'q-dl') { qDownload(); return; }
+    if (b.dataset.goto) { setMode('adv'); go(b.dataset.goto); return; }
+    if (b.id === 'nav-check') { setMode('check'); S.view = 'check'; try { history.replaceState(null, '', '#check'); } catch (x) {} render(); return; }
     if (b.dataset.example !== undefined) { var k = EXK[+b.dataset.example]; load(EXAMPLES[k], k + ' example'); return; }
     if (b.id === 'start-blank') { load(blankConfig(), 'new site from scratch'); return; }
     if (b.dataset.projUse) { var pr = projects()[b.dataset.projUse]; if (pr) newSiteFromTemplate(b.dataset.projUse, pr); return; }
@@ -1542,11 +1745,17 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
     if (/\.type$/.test(path)) { var r = get(path.replace(/\.type$/, '')); if (v === 'RRU' && !r.branches) r.branches = 4; if (v === 'AIR') r.branches = ''; }
     if (rebuild) render(true); else softRefresh();
   }
-  document.addEventListener('input', function (e) { if (e.target.tagName !== 'SELECT' && e.target.type !== 'checkbox' && e.target.type !== 'file') onField(e); });
+  document.addEventListener('input', function (e) {
+    var q = e.target.dataset && e.target.dataset.q, qs = e.target.dataset && e.target.dataset.qs;
+    if (q) { var k = q.split('.'); Q.rows[+k[0]][k[1]] = e.target.value; qRefreshStatus(); return; }
+    if (qs) { Q.settings[qs] = e.target.value; qRefreshStatus(); return; }
+    if (e.target.tagName !== 'SELECT' && e.target.type !== 'checkbox' && e.target.type !== 'file') onField(e);
+  });
   document.addEventListener('change', function (e) {
     if (e.target.id === 'imp-file') { readFiles(e.target.files, importFiles); e.target.value = ''; return; }
     if (e.target.id === 'chk-file') { readFiles(e.target.files, check); e.target.value = ''; return; }
     if (e.target.id === 'proj-file') { readFiles(e.target.files, addProject); e.target.value = ''; return; }
+    if (e.target.dataset && e.target.dataset.qs) { Q.settings[e.target.dataset.qs] = e.target.value; qSave(); render(true); var dd = document.querySelector('details.settings'); if (dd) dd.open = true; return; }
     if (e.target.tagName === 'SELECT' || e.target.type === 'checkbox') onField(e);
   });
   ['dragover', 'dragleave', 'drop'].forEach(function (ev) {
@@ -1628,8 +1837,10 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
     if (!S.last.ok) return;
     var names = S.last.names, files = [{ name: names.basic, data: S.last.sb }, { name: names.equip, data: S.last.eq }];
     if (S.last.summary) files.push({ name: names.summary, data: S.last.summary });
-    var zip = Core.makeZip(files);
-    var zname = Core.safeName(isTpl() ? tplNodeName(S.last.v) : S.last.c.nodeName) + '_site_scripts.zip', blob = new Blob([zip], { type: 'application/zip' });
+    saveZip(Core.safeName(isTpl() ? tplNodeName(S.last.v) : S.last.c.nodeName) + '_site_scripts.zip', Core.makeZip(files));
+  }
+  function saveZip(zname, zip) {
+    var blob = new Blob([zip], { type: 'application/zip' });
     if (downloadsNs) {
       downloadsNs.save({ filename: zname, data: blob }).then(function () { toast('Saved ' + zname); }, function (e) {
         toast(e && e.code === 'declined' ? 'Download cancelled' : 'Download not available here. Use the Copy buttons.', true);
@@ -1647,10 +1858,12 @@ if (typeof module !== 'undefined') module.exports = EXAMPLES;
   var saved = null; try { saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
   if (saved && saved.cfg && (saved.cfg.radios || saved.cfg.mode === 'template')) { S.cfg = saved.cfg; S.label = saved.label || 'your last draft'; S.visited = saved.visited || {}; }
   else { S.cfg = clone(EXAMPLES[EXK[0]]); S.label = EXK[0] + ' example'; }
+  qLoad();
   var h = (location.hash || '').slice(1);
-  if (h === 'check') { S.view = 'check'; render(); }
-  else go(STEPS.some(function (s) { return s.id === h; }) ? h : 'start');
-  window.addEventListener('hashchange', function () { var x = location.hash.slice(1); if (x === 'check') { S.view = 'check'; render(); } else if (STEPS.some(function (s) { return s.id === x; }) && (x !== S.step || S.view !== 'flow')) go(x); });
+  if (h === 'check') { setMode('check'); S.view = 'check'; render(); }
+  else if (STEPS.some(function (s) { return s.id === h; })) { setMode('adv'); go(h); }
+  else { setMode('quick'); render(); }
+  window.addEventListener('hashchange', function () { var x = location.hash.slice(1); if (x === 'check') { setMode('check'); S.view = 'check'; render(); } else if (x === 'quick') { setMode('quick'); render(); } else if (STEPS.some(function (s) { return s.id === x; }) && (x !== S.step || S.view !== 'flow')) { setMode('adv'); go(x); } });
   if (window.claude && typeof window.claude.use === 'function') window.claude.use('downloads').then(function (ns) { downloadsNs = ns; }, function () {});
 })();
 </script>

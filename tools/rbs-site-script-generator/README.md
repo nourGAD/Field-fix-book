@@ -6,7 +6,15 @@ Generates the **Site Basic** and **Site Equipment** NETCONF files for Ericsson B
 
 Everything runs in the browser and nothing is uploaded. You can also save `index.html` and open it offline on site.
 
-## Workflow
+## Quick mode (TRM sheet) — the default screen
+
+1. **Paste the TRM rows** straight from Excel: Site ID, then 4G IP / NH / VLAN, 5G CP IP / NH / VLAN, 5G UP IP / NH / VLAN, OAM IP / NH / VLAN. The header row is skipped.
+2. **Check each site:** the table looks like the TRM sheet. Enter the radios per site (4T4R RRUs, 2T2R RRUs, AIR units; default 3 / 0 / 3). Every site shows **Ready** or its problems in plain words, and wrong cells turn red.
+3. **Download:** one zip, one folder per site, each with Site Basic, Site Equipment and the RBS Summary. Sites with problems are left out until fixed.
+
+Radio layout: 4T4R RRUs on BB ports A…, AIR on N, P, Q…, 2T2R RRUs on the next free ports, sectors numbered in that order. Project settings (mask, node name ending, upgrade package, ENM settings) sit in one collapsed panel. **Advanced** keeps the step-by-step builder, import and project templates; **Check a file** checks any script.
+
+## Workflow (Advanced)
 
 1. **Start:** import the ENM files, start from scratch, or load an example.
 2. **Site & node:** node name, ENM services (SNMP, NTP, DNS), security, radios.
